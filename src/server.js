@@ -1,16 +1,10 @@
 require("dotenv").config();
 
 // ======================
-// DEBUG ENVIRONMENT VARIABLES
+// BASIC ENV LOG
 // ======================
-// console.log("=== ENV DEBUG START ===");
-// console.log("MONGO_URL:", process.env.MONGO_URL);
-// console.log("R2_BUCKET:", process.env.R2_BUCKET);
-// console.log("R2_ACCOUNT_ID:", process.env.R2_ACCOUNT_ID);
-// console.log("R2_PUBLIC_URL:", process.env.R2_PUBLIC_URL);
-// console.log("=== ENV DEBUG END ===");
 if (process.env.NODE_ENV !== "production") {
-  console.log("ENV loaded");
+  console.log("ENV loaded in development mode");
 }
 
 // ======================
@@ -20,11 +14,11 @@ const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
 const cookieParser = require("cookie-parser");
-const orderEventsBridge = require("./config/orderEventsBridge.js");
-
-
 const http = require("http");
 const { Server } = require("socket.io");
+
+const orderEventsBridge = require("./config/orderEventsBridge.js");
+const socketHandler = require("./config/socket.js");
 
 // ROUTES
 const authRoutes = require("./routes/auth.routes.js");
@@ -34,11 +28,9 @@ const orderRoutes = require("./routes/orderRoutes.js");
 const restaurantRoutes = require("./routes/restaurant.routes.js");
 const feedbackRoutes = require("./routes/feedback.routes.js");
 const arStatsRoutes = require("./routes/arStats.routes.js");
-// MIDDLEWARES
-const errorMiddleware = require("./middlewares/error.js");
 
-// SOCKET HANDLER
-const socketHandler = require("./config/socket.js");
+// MIDDLEWARE
+const errorMiddleware = require("./middlewares/error.js");
 
 // ======================
 // EXPRESS APP
@@ -46,11 +38,26 @@ const socketHandler = require("./config/socket.js");
 const app = express();
 
 // ======================
-// CORS CONFIG
+// CORS (FIXED FOR DEPLOYMENT)
 // ======================
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  process.env.CORS_ORIGIN, // https://your-frontend.vercel.app
+].filter(Boolean);
+
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || "*",
+    origin: function (origin, callback) {
+      // Allow server-to-server / Postman
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`CORS blocked: ${origin}`));
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
   })
@@ -64,7 +71,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 // ======================
-// REQUEST LOGGER (SAFE FOR PROD)
+// DEV REQUEST LOGGER
 // ======================
 if (process.env.NODE_ENV !== "production") {
   app.use((req, res, next) => {
@@ -73,13 +80,12 @@ if (process.env.NODE_ENV !== "production") {
   });
 }
 
-
 // ======================
 // MONGO CONNECTION
 // ======================
 mongoose
   .connect(process.env.MONGO_URL, {
-    autoIndex: true,
+    autoIndex: process.env.NODE_ENV !== "production",
   })
   .then(() => console.log("✅ MongoDB Connected"))
   .catch((err) => {
@@ -94,47 +100,32 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "*",
+    origin: allowedOrigins,
     credentials: true,
   },
-  transports: ["websocket", "polling"], // 🔥 fast & stable
+  transports: ["websocket", "polling"],
 });
 
-// 🔥 MAKE SOCKET AVAILABLE EVERYWHERE
+// Make socket available in routes
 app.use((req, res, next) => {
   req.io = io;
   next();
 });
 
-// INIT SOCKET HANDLER
+// Init socket logic
 socketHandler(io);
 orderEventsBridge(io);
-
 
 // ======================
 // ROUTES
 // ======================
-
-// AUTH
 app.use("/api/auth", authRoutes);
-
-// RESTAURANT PROFILE / DASHBOARD
 app.use("/api/v1/restaurant", restaurantRoutes);
-
-// MENU
 app.use("/api/v1", menuRoutes);
-
-// DISH
 app.use("/api/v1", dishRoutes);
-
-// ORDER MANAGEMENT (CUSTOMERS COLLECTION)
 app.use("/api/v1", orderRoutes);
-
-
-// ANALYTICS & FEEDBACK
 app.use("/api/ar-stats", arStatsRoutes);
 app.use("/api/feedback", feedbackRoutes);
-
 
 // ======================
 // HEALTH CHECK
@@ -145,7 +136,6 @@ app.get("/", (req, res) => {
     service: "restaurant-backend",
   });
 });
-
 
 app.get("/health", (req, res) => {
   res.status(200).json({
@@ -178,6 +168,9 @@ server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
 
+// ======================
+// PROCESS SAFETY
+// ======================
 process.on("unhandledRejection", (err) => {
   console.error("Unhandled Rejection:", err);
 });
