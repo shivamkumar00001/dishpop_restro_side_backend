@@ -133,24 +133,35 @@ const login = catchAsyncError(async (req, res, next) => {
 
 
 // ==================== LOGOUT ====================
+// ==================== LOGOUT ====================
 const logout = catchAsyncError(async (req, res, next) => {
+  const isProd = process.env.NODE_ENV === "production";
+
   res.cookie("token", "", {
     expires: new Date(0),
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "Strict",
+    secure: isProd,                 // 🔥 MUST MATCH sendToken
+    sameSite: isProd ? "none" : "lax",
   });
 
-  res.status(200).json({ success: true, message: "Logged out successfully." });
+  res.status(200).json({
+    success: true,
+    message: "Logged out successfully",
+  });
 });
+
 
 
 // ==================== PROFILE ====================
 // ==================== PROFILE ====================
 const getProfile = catchAsyncError(async (req, res, next) => {
-  // 1️⃣ Fetch logged-in owner
+  if (!req.user) {
+    return next(new ErrorHandler("Not authenticated.", 401));
+  }
+
   const user = await Owner.findOne({ username: req.user.username });
   if (!user) return next(new ErrorHandler("User not found.", 404));
+
 
   // 2️⃣ Dynamic dish count
   const dishCount = await Dish.countDocuments({

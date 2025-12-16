@@ -1,4 +1,16 @@
-require("dotenv").config();
+const path = require("path");
+require("dotenv").config({
+  path: path.resolve(__dirname, "../.env"),
+});
+
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+    env: process.env.NODE_ENV,
+    time: new Date().toISOString()
+  });
+});
+
 
 // ======================
 // BASIC ENV LOG
