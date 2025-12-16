@@ -47,9 +47,7 @@ const app = express();
 // CORS (FIXED FOR DEPLOYMENT)
 // ======================
 const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:3000",
-  "https://dishpop-restro-side-frontend-cml9.vercel.app",
+"*",
   process.env.CORS_ORIGIN,
 ].filter(Boolean);
 
