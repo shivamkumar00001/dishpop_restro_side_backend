@@ -47,26 +47,33 @@ const app = express();
 // CORS (FIXED FOR DEPLOYMENT)
 // ======================
 const allowedOrigins = [
-"*",
-  process.env.CORS_ORIGIN,
-].filter(Boolean);
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "https://dishpop-restro-side-frontend-cml9.vercel.app",
+];
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin) return callback(null, true); // Postman / server calls
+      // Allow server-to-server, Postman, mobile apps
+      if (!origin) return callback(null, true);
 
-      if (allowedOrigins.includes(origin)) {
+      if (
+        origin === "http://localhost:5173" ||
+        origin === "http://localhost:3000" ||
+        origin === "https://dishpop-restro-side-frontend-cml9.vercel.app"
+      ) {
         return callback(null, true);
       }
 
-      console.error("❌ CORS blocked:", origin);
-      callback(new Error("Not allowed by CORS"));
+      // ❗ DO NOT throw error — silently block
+      return callback(null, false);
     },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+    credentials: true, // 🔥 REQUIRED for cookies
   })
 );
+
+
 
 // ======================
 // GLOBAL MIDDLEWARES
