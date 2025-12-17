@@ -11,8 +11,8 @@ const sendToken = (user, statusCode, message, res) => {
         Date.now() + cookieExpireDays * 24 * 60 * 60 * 1000
       ),
       httpOnly: true,
-      secure: isProd,                 // ✅ true in production
-      sameSite: isProd ? "none" : "lax", // ✅ required for cross-site
+      secure: isProd,                 // ✅ true only on HTTPS
+      sameSite: isProd ? "none" : "lax", // ✅ FIXED
     })
     .json({
       success: true,

@@ -7,7 +7,7 @@ const isAuthenticated = async (req, res, next) => {
     // 1️⃣ Read token from cookie
     let token = req.cookies?.token;
 
-    // 2️⃣ Fallback to Authorization header
+    // 2️⃣ Fallback to Authorization header (optional)
     if (!token && req.headers.authorization?.startsWith("Bearer ")) {
       token = req.headers.authorization.split(" ")[1];
     }
@@ -19,24 +19,31 @@ const isAuthenticated = async (req, res, next) => {
     // 3️⃣ Verify JWT
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // 4️⃣ Support BOTH id & username tokens
-    const user = await Owner.findOne({
-      $or: [
-        decoded.id ? { _id: decoded.id } : null,
-        decoded.username ? { username: decoded.username } : null,
-      ].filter(Boolean),
-    }).select("-password");
+    // 4️⃣ Fetch user (deterministic)
+    let user;
+    if (decoded.id) {
+      user = await Owner.findById(decoded.id).select("-password");
+    } else if (decoded.username) {
+      user = await Owner.findOne({ username: decoded.username }).select("-password");
+    }
 
     if (!user) {
       return next(new ErrorHandler("User not found", 401));
     }
 
-    // 5️⃣ Attach user
+    // 5️⃣ Attach user to request
     req.user = user;
     next();
   } catch (error) {
     console.error("Auth Error:", error.message);
-    return next(new ErrorHandler("Invalid or expired token", 401));
+
+    if (error.name === "TokenExpiredError") {
+      return next(
+        new ErrorHandler("Session expired. Please login again.", 401)
+      );
+    }
+
+    return next(new ErrorHandler("Invalid token", 401));
   }
 };
 
