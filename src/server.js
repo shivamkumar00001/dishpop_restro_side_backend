@@ -34,6 +34,7 @@ const orderRoutes = require("./routes/orderRoutes.js");
 const restaurantRoutes = require("./routes/restaurant.routes.js");
 const feedbackRoutes = require("./routes/feedback.routes.js");
 const arStatsRoutes = require("./routes/arStats.routes.js");
+const contactRoutes = require("./routes/contact.routes");
 
 // MIDDLEWARE
 const errorMiddleware = require("./middlewares/error.js");
@@ -138,6 +139,8 @@ app.use("/api/v1", dishRoutes);
 app.use("/api/v1", orderRoutes);
 app.use("/api/ar-stats", arStatsRoutes);
 app.use("/api/feedback", feedbackRoutes);
+app.use("/api", contactRoutes);
+
 
 // ======================
 // HEALTH CHECK
