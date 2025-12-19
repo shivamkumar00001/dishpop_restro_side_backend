@@ -125,7 +125,6 @@ exports.updateOrderStatus = async (req, res) => {
     const { username, orderId } = req.params;
     const { status } = req.body;
 
-    // 🔐 Security check
     if (req.user.username !== username) {
       return res.status(403).json({ message: "Unauthorized" });
     }
@@ -140,13 +139,13 @@ exports.updateOrderStatus = async (req, res) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    // 🧹 Clear Redis cache (ONLY if enabled)
+    // 🧹 Clear Redis cache ONLY
     if (redis) {
       await redis.del(`orders:${username}`);
     }
 
-    // 🔴 Live socket update
-    req.io.to(username).emit("order-updated", order);
+    // ❌ DO NOT publish order-created / updated here
+    // Redis events come ONLY from customer backend
 
     res.json(order);
   } catch (err) {
@@ -154,4 +153,3 @@ exports.updateOrderStatus = async (req, res) => {
     res.status(500).json({ message: "Update failed" });
   }
 };
-

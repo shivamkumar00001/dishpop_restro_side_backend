@@ -3,9 +3,6 @@ require("dotenv").config({
   path: path.resolve(__dirname, "../.env"),
 });
 
- 
-
-
 // ======================
 // BASIC ENV LOG
 // ======================
@@ -22,6 +19,7 @@ const mongoose = require("mongoose");
 const cookieParser = require("cookie-parser");
 const http = require("http");
 const { Server } = require("socket.io");
+require("./models/Tag.js");
 
 const orderEventsBridge = require("./config/orderEventsBridge.js");
 const socketHandler = require("./config/socket.js");
@@ -36,6 +34,10 @@ const feedbackRoutes = require("./routes/feedback.routes.js");
 const arStatsRoutes = require("./routes/arStats.routes.js");
 const contactRoutes = require("./routes/contact.routes");
 
+// ZOMATO-STYLE EXTENSIONS
+const categoryRoutes = require("./routes/category.routes.js");
+const addonRoutes = require("./routes/addOnRoutes.js");
+
 // MIDDLEWARE
 const errorMiddleware = require("./middlewares/error.js");
 
@@ -45,7 +47,7 @@ const errorMiddleware = require("./middlewares/error.js");
 const app = express();
 
 // ======================
-// CORS (FIXED FOR DEPLOYMENT)
+// CORS (PRODUCTION SAFE)
 // ======================
 const allowedOrigins = [
   "http://localhost:5173",
@@ -56,23 +58,23 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow server-to-server, Postman, mobile apps
+      // allow server-to-server, Postman, mobile apps
       if (!origin) return callback(null, true);
 
-      if (
-        origin === "http://localhost:5173" ||
-        origin === "http://localhost:3000" ||
-        origin === "https://dishpop-restro-side-frontend-cml9.vercel.app"
-      ) {
+      if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
 
-      // ❗ DO NOT throw error — silently block
+      // silently block unknown origins
       return callback(null, false);
     },
-    credentials: true, // 🔥 REQUIRED for cookies
+    credentials: true,
   })
 );
+
+
+
+
 
 
 
@@ -119,24 +121,38 @@ const io = new Server(server, {
   transports: ["websocket", "polling"],
 });
 
-// Make socket available in routes
+// expose socket to controllers
 app.use((req, res, next) => {
   req.io = io;
   next();
 });
 
-// Init socket logic
+// init socket logic
 socketHandler(io);
 orderEventsBridge(io);
 
 // ======================
 // ROUTES
 // ======================
+
+// AUTH
 app.use("/api/auth", authRoutes);
+
+// RESTAURANT CORE
 app.use("/api/v1/restaurant", restaurantRoutes);
+
+// MENU & DISH
 app.use("/api/v1", menuRoutes);
 app.use("/api/v1", dishRoutes);
+
+// CATEGORY + ADDONS (✅ FIXED - categoryRoutes now uses correct base path)
+app.use("/api/v1/restaurants", categoryRoutes);
+app.use("/api/v1", addonRoutes);
+
+// ORDERS
 app.use("/api/v1", orderRoutes);
+
+// OTHER
 app.use("/api/ar-stats", arStatsRoutes);
 app.use("/api/feedback", feedbackRoutes);
 app.use("/api", contactRoutes);
@@ -179,6 +195,7 @@ app.use(errorMiddleware);
 // ======================
 const PORT = process.env.PORT || 5001;
 console.log("🚀 Backend version: 2025-09-17 v3");
+
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });

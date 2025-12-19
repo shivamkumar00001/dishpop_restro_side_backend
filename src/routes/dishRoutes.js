@@ -1,28 +1,19 @@
-// src/routes/dishRoutes.js
-
 const express = require("express");
 const router = express.Router();
+
 const upload = require("../middlewares/upload.middleware");
 const isAuthenticated = require("../middlewares/isAuthenticated");
 
 const {
   getDish,
   updateDish,
-  deleteDish
+  deleteDish,
 } = require("../controllers/dishController");
 
-// ==========================================================
-// GET SINGLE DISH  (PUBLIC)
-// /api/v1/restaurants/:username/dishes/:dishId
-// ==========================================================
-router.get(
-  "/restaurants/:username/dishes/:dishId",
-  getDish
-);
+// Get single dish
+router.get("/restaurants/:username/dishes/:dishId", getDish);
 
-// ==========================================================
-// UPDATE DISH (PROTECTED)
-// ==========================================================
+// Update dish
 router.patch(
   "/restaurants/:username/dishes/:dishId",
   isAuthenticated,
@@ -30,9 +21,7 @@ router.patch(
   updateDish
 );
 
-// ==========================================================
-// DELETE DISH (PROTECTED)
-// ==========================================================
+// Delete dish
 router.delete(
   "/restaurants/:username/dishes/:dishId",
   isAuthenticated,
