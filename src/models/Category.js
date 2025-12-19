@@ -1,57 +1,44 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const categorySchema = new mongoose.Schema(
   {
+    username: {
+      type: String,
+      required: true,
+      index: true,
+    },
+
     name: {
       type: String,
-      required: [true, 'Category name is required'],
-      unique: true,
-      trim: true,
-      maxlength: [50, 'Category name cannot exceed 50 characters']
+      required: true,
     },
+
     description: {
       type: String,
       trim: true,
-      maxlength: [200, 'Description cannot exceed 200 characters']
     },
+
     icon: {
-      type: String,
-      default: '🍽️'
+      type: String, // emoji OR image URL
+      default: "🍽️",
     },
-    image: {
-      type: String,
-      default: null
+
+    order: {
+      type: Number,
+      default: 0,
     },
+
+    // ✅ ADD THIS FIELD - IT WAS MISSING!
     isActive: {
       type: Boolean,
-      default: true
+      default: true,
     },
-    displayOrder: {
-      type: Number,
-      default: 0
-    },
-    dishCount: {
-      type: Number,
-      default: 0
-    }
   },
-  {
-    timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true }
-  }
+  { timestamps: true }
 );
 
-// Indexes
-categorySchema.index({ name: 1 });
-categorySchema.index({ isActive: 1 });
-categorySchema.index({ displayOrder: 1 });
+// Indexes for performance
+categorySchema.index({ username: 1, isActive: 1 });
+categorySchema.index({ username: 1, order: 1 });
 
-// Virtual for dishes
-categorySchema.virtual('dishes', {
-  ref: 'Dish',
-  localField: '_id',
-  foreignField: 'category'
-});
-
-module.exports = mongoose.model('Category', categorySchema);
+module.exports = mongoose.model("Category", categorySchema);
