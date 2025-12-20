@@ -53,27 +53,30 @@ const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
   "https://dishpop-restro-side-frontend-cml9.vercel.app",
+  "https://www.dishpop.in"
 ];
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // allow server-to-server, Postman, mobile apps
+      // Allow server-to-server, Postman, mobile apps
       if (!origin) return callback(null, true);
 
-      if (allowedOrigins.includes(origin)) {
+      if (
+        origin === "http://localhost:5173" ||
+        origin === "http://localhost:3000" ||
+        origin === "https://dishpop-restro-side-frontend-cml9.vercel.app"||
+        origin === "https://www.dishpop.in"
+      ) {
         return callback(null, true);
       }
 
-      // silently block unknown origins
+      // ❗ DO NOT throw error — silently block
       return callback(null, false);
     },
-    credentials: true,
+    credentials: true, // 🔥 REQUIRED for cookies
   })
 );
-
-
-
 
 
 
