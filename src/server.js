@@ -53,30 +53,30 @@ const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
   "https://dishpop-restro-side-frontend-cml9.vercel.app",
-  "https://www.dishpop.in"
+  "https://www.dishpop.in",
 ];
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow server-to-server, Postman, mobile apps
+      // Allow Postman, mobile apps, SSR
       if (!origin) return callback(null, true);
 
-      if (
-        origin === "http://localhost:5173" ||
-        origin === "http://localhost:3000" ||
-        origin === "https://dishpop-restro-side-frontend-cml9.vercel.app"||
-        origin === "https://www.dishpop.in"
-      ) {
+      if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
 
-      // ❗ DO NOT throw error — silently block
-      return callback(null, false);
+      // Explicit rejection (IMPORTANT)
+      return callback(new Error("Not allowed by CORS"));
     },
-    credentials: true, // 🔥 REQUIRED for cookies
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
+// 🔥 REQUIRED for preflight
+app.options("*", cors());
 
 
 
