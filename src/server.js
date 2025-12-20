@@ -178,6 +178,15 @@ app.get("/health", (req, res) => {
   });
 });
 
+
+app.get("/version", (req, res) => {
+  res.json({
+    service: "dishpop-restro-backend",
+    commit: process.env.RENDER_GIT_COMMIT || "unknown",
+    deployedAt: new Date().toISOString(),
+  });
+});
+
 // ======================
 // 404 HANDLER
 // ======================
