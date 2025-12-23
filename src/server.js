@@ -21,6 +21,9 @@ const http = require("http");
 const { Server } = require("socket.io");
 require("./models/Tag.js");
 
+// 🆕 REDIS IMPORT (for order caching)
+const { initRedis, closeRedis } = require("./config/redis.js");
+
 const orderEventsBridge = require("./config/orderEventsBridge.js");
 const socketHandler = require("./config/socket.js");
 
@@ -28,7 +31,7 @@ const socketHandler = require("./config/socket.js");
 const authRoutes = require("./routes/auth.routes.js");
 const menuRoutes = require("./routes/menuRoutes.js");
 const dishRoutes = require("./routes/dishRoutes.js");
-const orderRoutes = require("./routes/orderRoutes.js");
+const orderRoutes = require("./routes/orderRoutes.js"); // ✅ Enhanced with Redis
 const restaurantRoutes = require("./routes/restaurant.routes.js");
 const feedbackRoutes = require("./routes/feedback.routes.js");
 const arStatsRoutes = require("./routes/arStats.routes.js");
@@ -51,9 +54,11 @@ const app = express();
 // ======================
 const allowedOrigins = [
   "http://localhost:5173",
+  "http://localhost:5174",
   "http://localhost:3000",
   "https://dishpop-restro-side-frontend-cml9.vercel.app",
   "https://www.dishpop.in",
+
 ];
 
 app.use(
@@ -70,16 +75,13 @@ app.use(
       return callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
 // 🔥 REQUIRED for preflight
 app.options("*", cors());
-
-
-
 
 // ======================
 // GLOBAL MIDDLEWARES
@@ -109,6 +111,22 @@ mongoose
   .catch((err) => {
     console.error("❌ Mongo Connection Error:", err);
     process.exit(1);
+  });
+
+// ======================
+// 🆕 REDIS INITIALIZATION
+// ======================
+// Initialize Redis for order caching
+// If REDIS_URL is not set, system runs without caching
+initRedis()
+  .then(() => {
+    if (process.env.REDIS_URL) {
+      console.log("✅ Redis initialization started");
+    }
+  })
+  .catch((err) => {
+    console.error("⚠️  Redis initialization failed:", err.message);
+    console.log("📝 Server will continue without Redis caching");
   });
 
 // ======================
@@ -148,18 +166,17 @@ app.use("/api/v1/restaurant", restaurantRoutes);
 app.use("/api/v1", menuRoutes);
 app.use("/api/v1", dishRoutes);
 
-// CATEGORY + ADDONS (✅ FIXED - categoryRoutes now uses correct base path)
+// CATEGORY + ADDONS
 app.use("/api/v1/restaurants", categoryRoutes);
 app.use("/api/v1", addonRoutes);
 
-// ORDERS
+// ORDERS (✅ Enhanced with Redis caching)
 app.use("/api/v1", orderRoutes);
 
 // OTHER
 app.use("/api/ar-stats", arStatsRoutes);
 app.use("/api/feedback", feedbackRoutes);
 app.use("/api", contactRoutes);
-
 
 // ======================
 // HEALTH CHECK
@@ -177,7 +194,6 @@ app.get("/health", (req, res) => {
     uptime: process.uptime(),
   });
 });
-
 
 app.get("/version", (req, res) => {
   res.json({
@@ -206,10 +222,12 @@ app.use(errorMiddleware);
 // START SERVER
 // ======================
 const PORT = process.env.PORT || 5001;
-console.log("🚀 Backend version: 2025-09-17 v3");
+console.log("🚀 Backend version: 2025-12-22 v4 (with Redis order caching)");
 
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📡 Socket.IO enabled for real-time orders`);
+  console.log(`💾 Redis caching: ${process.env.REDIS_URL ? 'ENABLED' : 'DISABLED'}`);
 });
 
 // ======================
@@ -222,4 +240,34 @@ process.on("unhandledRejection", (err) => {
 process.on("uncaughtException", (err) => {
   console.error("Uncaught Exception:", err);
   process.exit(1);
+});
+
+// ======================
+// 🆕 GRACEFUL SHUTDOWN
+// ======================
+// Close Redis connection on shutdown
+process.on("SIGTERM", async () => {
+  console.log("SIGTERM signal received: closing HTTP server and Redis");
+  
+  // Close Redis connection
+  await closeRedis();
+  
+  // Close HTTP server
+  server.close(() => {
+    console.log("HTTP server closed");
+    process.exit(0);
+  });
+});
+
+process.on("SIGINT", async () => {
+  console.log("SIGINT signal received: closing HTTP server and Redis");
+  
+  // Close Redis connection
+  await closeRedis();
+  
+  // Close HTTP server
+  server.close(() => {
+    console.log("HTTP server closed");
+    process.exit(0);
+  });
 });
