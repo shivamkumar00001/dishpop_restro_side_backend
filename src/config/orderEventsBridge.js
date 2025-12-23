@@ -1,70 +1,115 @@
-const redis = require("./redis");
+const Customer = require("../models/customers");
+const { deleteCachePattern } = require("./redis");
 
-module.exports = function orderEventsBridge(io) {
-  if (!redis) {
-    console.warn("⚠️ orderEventsBridge skipped (Redis disabled)");
-    return;
-  }
+/**
+ * Order Events Bridge
+ * Listens to customer order events and broadcasts to restaurant
+ */
+module.exports = (io) => {
+  io.on("connection", (socket) => {
+    // ===============================
+    // CUSTOMER CREATES ORDER
+    // ===============================
+    socket.on("customer:order:create", async (orderData) => {
+      try {
+        console.log("📦 New order from customer:", orderData);
 
-  console.log("🔁 Order Events Bridge initialized");
+        const { username, tableNumber, customerName, items, grandTotal } =
+          orderData;
 
-  // 🔁 Use a dedicated Redis SUB connection
-  const sub = redis.duplicate();
+        if (!username || !tableNumber || !customerName || !items || !grandTotal) {
+          socket.emit("error", {
+            message: "Missing required fields",
+          });
+          return;
+        }
 
-  // ✅ MUST match customer backend publish channel
-  const CHANNEL = "orders-events";
+        // Create order
+        const newOrder = new Customer({
+          username,
+          tableNumber,
+          customerName,
+          phoneNumber: orderData.phoneNumber || "",
+          description: orderData.description || "",
+          items,
+          grandTotal,
+          status: "pending",
+        });
 
-  sub.subscribe(CHANNEL, (err) => {
-    if (err) {
-      console.error("❌ Redis subscribe failed:", err.message);
-    } else {
-      console.log(`📡 Subscribed to Redis channel: ${CHANNEL}`);
-    }
-  });
+        await newOrder.save();
 
-  sub.on("message", (channel, message) => {
-    if (channel !== CHANNEL) return;
+        // Invalidate cache
+        await deleteCachePattern(`orders:${username}:*`);
+        await deleteCachePattern(`stats:${username}:*`);
 
-    try {
-      const { type, username, data } = JSON.parse(message);
+        // Emit to restaurant
+        const restaurantRoom = `restaurant:${username}`;
+        io.to(restaurantRoom).emit("order:created", {
+          type: "created",
+          order: newOrder.toObject(),
+          timestamp: Date.now(),
+        });
 
-      // 🔁 Translate customer → restaurant frontend events
-      const socketEvent = normalizeEvent(type);
-      if (!socketEvent) {
-        console.warn("⚠️ Unknown order event:", type);
-        return;
+        // Confirm to customer
+        socket.emit("order:created:success", {
+          message: "Order created successfully",
+          orderId: newOrder._id,
+          order: newOrder.toObject(),
+        });
+
+        console.log(`✅ Order ${newOrder._id} created and broadcasted`);
+      } catch (error) {
+        console.error("❌ Error creating order:", error);
+        socket.emit("error", {
+          message: "Failed to create order",
+          error: error.message,
+        });
       }
+    });
 
-      const roomSize =
-        io.sockets.adapter.rooms.get(username)?.size || 0;
+    // ===============================
+    // CUSTOMER CANCELS ORDER
+    // ===============================
+    socket.on("customer:order:cancel", async ({ orderId }) => {
+      try {
+        const order = await Customer.findByIdAndUpdate(
+          orderId,
+          { status: "cancelled" },
+          { new: true }
+        );
 
-      console.log(
-        `📡 Redis → Socket | ${type} → ${socketEvent} | room=${username} | listeners=${roomSize}`
-      );
+        if (!order) {
+          socket.emit("error", { message: "Order not found" });
+          return;
+        }
 
-      // ✅ Emit to restaurant room
-      io.to(username).emit(socketEvent, data);
+        // Invalidate cache
+        await deleteCachePattern(`orders:${order.username}:*`);
+        await deleteCachePattern(`stats:${order.username}:*`);
 
-    } catch (err) {
-      console.error("❌ Redis message parse error:", err.message);
-    }
+        // Emit to restaurant
+        const restaurantRoom = `restaurant:${order.username}`;
+        io.to(restaurantRoom).emit("order:updated", {
+          type: "updated",
+          order: order.toObject(),
+          timestamp: Date.now(),
+        });
+
+        socket.emit("order:cancelled:success", {
+          message: "Order cancelled",
+          orderId: order._id,
+        });
+
+        console.log(`✅ Order ${orderId} cancelled`);
+      } catch (error) {
+        console.error("❌ Error cancelling order:", error);
+        socket.emit("error", {
+          message: "Failed to cancel order",
+          error: error.message,
+        });
+      }
+    });
   });
 
-  sub.on("error", (err) => {
-    console.error("❌ Redis subscriber error:", err.message);
-  });
+  console.log("🌉 Order Events Bridge initialized");
 };
-
-// 🔁 EVENT NAME TRANSLATOR
-function normalizeEvent(type) {
-  switch (type) {
-    case "order-created":
-      return "created";
-    case "order-updated":
-      return "updated";
-    case "order-replaced":
-      return "replaced";
-    default:
-      return null;
-  }
-}
