@@ -20,7 +20,8 @@ const cookieParser = require("cookie-parser");
 const http = require("http");
 const { Server } = require("socket.io");
 require("./models/Tag.js");
-
+const subscriptionRoutes = require("./routes/subscription.routes");
+const razorpayWebhookController = require("./controllers/razorpayWebhook.controller");
 // 🆕 REDIS IMPORT (for order caching)
 const { initRedis, closeRedis } = require("./config/redis.js");
 
@@ -48,6 +49,20 @@ const errorMiddleware = require("./middlewares/error.js");
 // EXPRESS APP
 // ======================
 const app = express();
+
+
+
+
+// ======================
+// 🔥 RAZORPAY WEBHOOK (MUST BE FIRST)
+// ======================
+app.post(
+  "/api/subscription/webhook",
+  express.raw({ type: "application/json" }),
+  razorpayWebhookController.handleRazorpayWebhook
+);
+
+
 
 // ======================
 // CORS (PRODUCTION SAFE)
@@ -178,6 +193,16 @@ app.use("/api/ar-stats", arStatsRoutes);
 app.use("/api/feedback", feedbackRoutes);
 app.use("/api", contactRoutes);
 
+// 🔹 SUBSCRIPTION ROUTES
+
+app.use("/api/subscription", subscriptionRoutes);
+
+
+// app.post(
+//   "/api/subscription/webhook",
+//   express.raw({ type: "application/json" }),
+//   razorpayWebhookController.handleRazorpayWebhook  // ✅ matches export
+// );
 // ======================
 // HEALTH CHECK
 // ======================

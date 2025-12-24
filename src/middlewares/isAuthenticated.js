@@ -1,5 +1,5 @@
 const jwt = require("jsonwebtoken");
-const Owner = require("../models/Owner.model");
+const Owner = require("../models/Owner");
 const ErrorHandler = require("../utils/ErrorHandler");
 
 const isAuthenticated = async (req, res, next) => {

@@ -67,7 +67,7 @@ router.get("/check-username", async (req, res) => {
       });
     }
 
-    const Owner = require("../models/Owner.model.js");
+    const Owner = require("../models/Owner.js");
     const existingOwner = await Owner.findOne({
       username: username.trim().toLowerCase(),
     });
