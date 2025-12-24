@@ -1,4 +1,4 @@
-const Owner = require("../models/Owner.model");
+const Owner = require("../models/Owner");
 
 // ===============================
 // GET restaurant by username (Public)
