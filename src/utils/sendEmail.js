@@ -13,7 +13,7 @@ const sendEmail = async ({ email, subject, message, html }) => {
     });
 
     await transporter.sendMail({
-      from: `"DineAR App" <${process.env.SMTP_MAIL}>`,
+      from: `"Team Dishpop" <${process.env.SMTP_MAIL}>`,
       to: email,
       subject,
       html: html || message, // ❤️ NOW BOTH WORK
