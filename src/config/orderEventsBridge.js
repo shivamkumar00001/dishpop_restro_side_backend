@@ -1,80 +1,86 @@
+// ============================================================
+// FILE PATH: src/config/orderEventsBridge.js (RESTAURANT BACKEND)
+// DESCRIPTION: Listen to customer orders and broadcast to restaurant dashboard
+// IMPORTANT: Does NOT create orders - only broadcasts existing ones
+// ============================================================
+
 const Customer = require("../models/customers");
 const { deleteCachePattern } = require("./redis");
 
 /**
  * Order Events Bridge
- * Listens to customer order events and broadcasts to restaurant
+ * Receives order notifications from customer backend
+ * Broadcasts to restaurant dashboard for real-time updates
+ * 
+ * ⚠️ IMPORTANT: This does NOT create orders in database
+ * Orders are already created by customer backend
  */
 module.exports = (io) => {
   io.on("connection", (socket) => {
+    console.log("🔌 New socket connection:", socket.id);
+
     // ===============================
-    // CUSTOMER CREATES ORDER
+    // CUSTOMER ORDER NOTIFICATION
     // ===============================
     socket.on("customer:order:create", async (orderData) => {
       try {
-        console.log("📦 New order from customer:", orderData);
+        console.log("📦 Order notification received:", orderData);
 
-        const { username, tableNumber, customerName, items, grandTotal } =
-          orderData;
+        const { orderId, username } = orderData;
 
-        if (!username || !tableNumber || !customerName || !items || !grandTotal) {
+        // Validation
+        if (!orderId || !username) {
           socket.emit("error", {
-            message: "Missing required fields",
+            message: "Missing orderId or username",
           });
           return;
         }
 
-        // Create order
-        const newOrder = new Customer({
-          username,
-          tableNumber,
-          customerName,
-          phoneNumber: orderData.phoneNumber || "",
-          description: orderData.description || "",
-          items,
-          grandTotal,
-          status: "pending",
-        });
+        // ✅ FETCH existing order (created by customer backend)
+        const order = await Customer.findById(orderId).lean();
 
-        await newOrder.save();
+        if (!order) {
+          socket.emit("error", {
+            message: "Order not found in database",
+          });
+          return;
+        }
 
-        // Invalidate cache
+        // Invalidate cache for fresh data
         await deleteCachePattern(`orders:${username}:*`);
         await deleteCachePattern(`stats:${username}:*`);
 
-        // Emit to restaurant
+        // 📡 Broadcast to restaurant dashboard
         const restaurantRoom = `restaurant:${username}`;
         io.to(restaurantRoom).emit("order:created", {
           type: "created",
-          order: newOrder.toObject(),
+          order: order,
           timestamp: Date.now(),
         });
 
-        // Confirm to customer
+        // Confirm to customer backend
         socket.emit("order:created:success", {
-          message: "Order created successfully",
-          orderId: newOrder._id,
-          order: newOrder.toObject(),
+          message: "Order notification broadcasted successfully",
+          orderId: order._id,
         });
 
-        console.log(`✅ Order ${newOrder._id} created and broadcasted`);
+        console.log(`✅ Order ${order._id} broadcasted to restaurant dashboard`);
       } catch (error) {
-        console.error("❌ Error creating order:", error);
+        console.error("❌ Error processing order notification:", error);
         socket.emit("error", {
-          message: "Failed to create order",
+          message: "Failed to process order notification",
           error: error.message,
         });
       }
     });
 
-
-
-    
     // ===============================
     // CUSTOMER CANCELS ORDER
     // ===============================
     socket.on("customer:order:cancel", async ({ orderId }) => {
       try {
+        console.log("🚫 Order cancellation request:", orderId);
+
         const order = await Customer.findByIdAndUpdate(
           orderId,
           { status: "cancelled" },
@@ -90,7 +96,7 @@ module.exports = (io) => {
         await deleteCachePattern(`orders:${order.username}:*`);
         await deleteCachePattern(`stats:${order.username}:*`);
 
-        // Emit to restaurant
+        // 📡 Broadcast update to restaurant dashboard
         const restaurantRoom = `restaurant:${order.username}`;
         io.to(restaurantRoom).emit("order:updated", {
           type: "updated",
@@ -99,11 +105,11 @@ module.exports = (io) => {
         });
 
         socket.emit("order:cancelled:success", {
-          message: "Order cancelled",
+          message: "Order cancelled successfully",
           orderId: order._id,
         });
 
-        console.log(`✅ Order ${orderId} cancelled`);
+        console.log(`✅ Order ${orderId} cancelled and broadcasted`);
       } catch (error) {
         console.error("❌ Error cancelling order:", error);
         socket.emit("error", {
@@ -112,127 +118,77 @@ module.exports = (io) => {
         });
       }
     });
+
+    // ===============================
+    // RESTAURANT UPDATES ORDER STATUS
+    // ===============================
+    socket.on("restaurant:order:update", async ({ orderId, status }) => {
+      try {
+        console.log(`📝 Order status update: ${orderId} -> ${status}`);
+
+        const order = await Customer.findByIdAndUpdate(
+          orderId,
+          { status },
+          { new: true }
+        );
+
+        if (!order) {
+          socket.emit("error", { message: "Order not found" });
+          return;
+        }
+
+        // Invalidate cache
+        await deleteCachePattern(`orders:${order.username}:*`);
+        await deleteCachePattern(`stats:${order.username}:*`);
+
+        // 📡 Broadcast to all connected clients (dashboard)
+        const restaurantRoom = `restaurant:${order.username}`;
+        io.to(restaurantRoom).emit("order:updated", {
+          type: "updated",
+          order: order.toObject(),
+          timestamp: Date.now(),
+        });
+
+        socket.emit("order:updated:success", {
+          message: "Order status updated successfully",
+          orderId: order._id,
+          status: order.status,
+        });
+
+        console.log(`✅ Order ${orderId} status updated to ${status}`);
+      } catch (error) {
+        console.error("❌ Error updating order:", error);
+        socket.emit("error", {
+          message: "Failed to update order",
+          error: error.message,
+        });
+      }
+    });
+
+    // ===============================
+    // JOIN RESTAURANT ROOM
+    // ===============================
+    socket.on("restaurant:join", ({ username }) => {
+      const restaurantRoom = `restaurant:${username}`;
+      socket.join(restaurantRoom);
+      console.log(`🏠 Restaurant ${username} joined room ${restaurantRoom}`);
+      
+      socket.emit("restaurant:joined", {
+        message: `Joined restaurant room: ${restaurantRoom}`,
+        room: restaurantRoom,
+      });
+    });
+
+    // ===============================
+    // DISCONNECT
+    // ===============================
+    socket.on("disconnect", () => {
+      console.log("🔌 Socket disconnected:", socket.id);
+    });
   });
 
-  console.log("🌉 Order Events Bridge initialized");
+  console.log("🌉 Order Events Bridge initialized (No duplicate creation)");
 };
 
 
 
-
-// const Customer = require("../models/customers");
-// const { deleteCachePattern } = require("./redis");
-
-// /**
-//  * Order Events Bridge
-//  * Listens to customer order events and broadcasts to restaurant
-//  * OPTIMIZED: No duplicate order creation - fetches existing orders only
-//  */
-// module.exports = (io) => {
-//   io.on("connection", (socket) => {
-//     // ===============================
-//     // CUSTOMER NOTIFIES ORDER CREATED
-//     // ===============================
-//     socket.on("customer:order:create", async (orderData) => {
-//       try {
-//         console.log("📦 Order notification from customer:", orderData);
-
-//         const { orderId, username } = orderData;
-
-//         // Validation
-//         if (!orderId || !username) {
-//           socket.emit("error", {
-//             message: "Missing orderId or username",
-//           });
-//           return;
-//         }
-
-//         // Fetch existing order (created by customer app)
-//         const order = await Customer.findById(orderId).lean();
-
-//         if (!order) {
-//           socket.emit("error", {
-//             message: "Order not found",
-//           });
-//           return;
-//         }
-
-//         // Invalidate cache
-//         await Promise.all([
-//           deleteCachePattern(`orders:${username}:*`),
-//           deleteCachePattern(`stats:${username}:*`),
-//         ]);
-
-//         // Emit to restaurant
-//         const restaurantRoom = `restaurant:${username}`;
-//         io.to(restaurantRoom).emit("order:created", {
-//           type: "created",
-//           order: order,
-//           timestamp: Date.now(),
-//         });
-
-//         // Confirm to customer
-//         socket.emit("order:created:success", {
-//           message: "Order notification sent successfully",
-//           orderId: order._id,
-//           order: order,
-//         });
-
-//         console.log(`✅ Order ${order._id} broadcasted to restaurant`);
-//       } catch (error) {
-//         console.error("❌ Error processing order notification:", error);
-//         socket.emit("error", {
-//           message: "Failed to process order notification",
-//           error: error.message,
-//         });
-//       }
-//     });
-
-//     // ===============================
-//     // CUSTOMER CANCELS ORDER
-//     // ===============================
-//     socket.on("customer:order:cancel", async ({ orderId }) => {
-//       try {
-//         const order = await Customer.findByIdAndUpdate(
-//           orderId,
-//           { status: "cancelled" },
-//           { new: true }
-//         );
-
-//         if (!order) {
-//           socket.emit("error", { message: "Order not found" });
-//           return;
-//         }
-
-//         // Invalidate cache
-//         await Promise.all([
-//           deleteCachePattern(`orders:${order.username}:*`),
-//           deleteCachePattern(`stats:${order.username}:*`),
-//         ]);
-
-//         // Emit to restaurant
-//         const restaurantRoom = `restaurant:${order.username}`;
-//         io.to(restaurantRoom).emit("order:updated", {
-//           type: "updated",
-//           order: order.toObject(),
-//           timestamp: Date.now(),
-//         });
-
-//         socket.emit("order:cancelled:success", {
-//           message: "Order cancelled",
-//           orderId: order._id,
-//         });
-
-//         console.log(`✅ Order ${orderId} cancelled`);
-//       } catch (error) {
-//         console.error("❌ Error cancelling order:", error);
-//         socket.emit("error", {
-//           message: "Failed to cancel order",
-//           error: error.message,
-//         });
-//       }
-//     });
-//   });
-
-//   console.log("🌉 Order Events Bridge initialized");
-// };
