@@ -193,6 +193,8 @@ const crypto = require("crypto");
 const Owner = require("../models/Owner");
 
 exports.handleRazorpayWebhook = async (req, res) => {
+
+  console.log("🔥 RAZORPAY WEBHOOK HIT AT", new Date().toISOString());
   try {
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
     const razorpaySignature = req.headers["x-razorpay-signature"];
