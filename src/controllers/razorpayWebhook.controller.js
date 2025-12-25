@@ -276,14 +276,29 @@ exports.handleRazorpayWebhook = async (req, res) => {
     /* ------------------------------------
        4️⃣ USER CANCELLED → CANCELLED
     ------------------------------------ */
+    // if (event === "subscription.cancelled") {
+    //   await Owner.findOneAndUpdate(
+    //     { "subscription.razorpaySubscriptionId": subscriptionId },
+    //     {
+    //       $set: { "subscription.status": "CANCELLED" }
+    //     }
+    //   );
+    // }
+
     if (event === "subscription.cancelled") {
-      await Owner.findOneAndUpdate(
-        { "subscription.razorpaySubscriptionId": subscriptionId },
-        {
-          $set: { "subscription.status": "CANCELLED" }
-        }
-      );
+  await Owner.findOneAndUpdate(
+    {
+      "subscription.razorpaySubscriptionId": subscriptionId,
+      "subscription.currentPeriodEnd": { $gt: new Date() }
+    },
+    {
+      $set: { "subscription.status": "CANCELLED" }
     }
+  );
+
+  console.log("⚠️ subscription.cancelled → CANCELLED (access till period end)");
+}
+
 
     return res.status(200).json({ status: "ok" });
 
