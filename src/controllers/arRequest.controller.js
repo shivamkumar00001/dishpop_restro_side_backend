@@ -73,7 +73,7 @@ exports.requestARModel = async (req, res) => {
       uploadedImages.push({
         dishId,
         dishName,
-        imageUrl: `${process.env.R2_PUBLIC_URL}/${key}`,
+        imageUrl: `${process.env.R2_PUBLIC_URL_R}/${key}`,
       });
     }
 
