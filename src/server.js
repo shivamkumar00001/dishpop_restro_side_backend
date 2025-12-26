@@ -37,7 +37,7 @@ const restaurantRoutes = require("./routes/restaurant.routes.js");
 const feedbackRoutes = require("./routes/feedback.routes.js");
 const arStatsRoutes = require("./routes/arStats.routes.js");
 const contactRoutes = require("./routes/contact.routes");
-
+const arRoutes = require("./routes/ar.routes.js");
 // ZOMATO-STYLE EXTENSIONS
 const categoryRoutes = require("./routes/category.routes.js");
 const addonRoutes = require("./routes/addOnRoutes.js");
@@ -196,7 +196,12 @@ app.use("/api", contactRoutes);
 // 🔹 SUBSCRIPTION ROUTES
 
 app.use("/api/subscription", subscriptionRoutes);
+// app.use("/api/subscription-status", require("./routes/subscriptionStatus.routes"));
 
+app.use(
+  "/api/subscription-status",
+  require("./routes/subscriptionStatus.routes")
+);
 
 // app.post(
 //   "/api/subscription/webhook",
@@ -227,7 +232,9 @@ app.get("/version", (req, res) => {
     deployedAt: new Date().toISOString(),
   });
 });
+// model iamge file handler 
 
+app.use("/api/ar", arRoutes);
 // ======================
 // 404 HANDLER
 // ======================
