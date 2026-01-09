@@ -33,6 +33,10 @@ const authRoutes = require("./routes/auth.routes.js");
 const menuRoutes = require("./routes/menuRoutes.js");
 const dishRoutes = require("./routes/dishRoutes.js");
 const orderRoutes = require("./routes/orderRoutes.js"); // ✅ Enhanced with Redis
+
+const billingRoutes = require("./routes/billingRoutes");
+
+
 const restaurantRoutes = require("./routes/restaurant.routes.js");
 const feedbackRoutes = require("./routes/feedback.routes.js");
 const arStatsRoutes = require("./routes/arStats.routes.js");
@@ -43,6 +47,7 @@ const billinggRoutes = require("./routes/billinggRoutes.js");
 // ZOMATO-STYLE EXTENSIONS
 const categoryRoutes = require("./routes/category.routes.js");
 const addonRoutes = require("./routes/addOnRoutes.js");
+const tagRoutes = require("./routes/tagRoutes");
 
 // MIDDLEWARE
 const errorMiddleware = require("./middlewares/error.js");
@@ -216,6 +221,8 @@ app.use("/api/v1", addonRoutes);
 
 // ORDERS (✅ Enhanced with Redis caching)
 app.use("/api/v1", orderRoutes);
+app.use("/api/v1/tags", tagRoutes);
+app.use("/api/v1", billingRoutes); 
 
 // OTHER
 app.use("/api/ar-stats", arStatsRoutes);
