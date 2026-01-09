@@ -42,6 +42,8 @@ const feedbackRoutes = require("./routes/feedback.routes.js");
 const arStatsRoutes = require("./routes/arStats.routes.js");
 const contactRoutes = require("./routes/contact.routes");
 const arRoutes = require("./routes/ar.routes.js");
+const billinggRoutes = require("./routes/billinggRoutes.js");
+
 // ZOMATO-STYLE EXTENSIONS
 const categoryRoutes = require("./routes/category.routes.js");
 const addonRoutes = require("./routes/addOnRoutes.js");
@@ -77,23 +79,45 @@ const allowedOrigins = [
   "http://localhost:5174",
   "http://localhost:3000",
   "https://dishpop-restro-side-frontend-cml9.vercel.app",
+  "https://dishpop.in",       // 🔥 ADD THIS
   "https://www.dishpop.in",
-    "https://api.dishpop.in" // 👈 add backend domain if applicable
-
-
+  "https://api.dishpop.in"
 ];
 
+
+// app.use(
+//   cors({
+//     origin: (origin, callback) => {
+//       // Allow Postman, mobile apps, SSR
+//       if (!origin) return callback(null, true);
+
+//       if (allowedOrigins.includes(origin)) {
+//         return callback(null, true);
+//       }
+
+//       // Explicit rejection (IMPORTANT)
+//       return callback(new Error("Not allowed by CORS"));
+//     },
+//     credentials: true,
+//     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+//     allowedHeaders: ["Content-Type", "Authorization"],
+//   })
+// );
+
+// 🔥 REQUIRED for preflight
+// app.options("*", cors({
+//   origin: allowedOrigins,
+//   credentials: true
+// }));
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow Postman, mobile apps, SSR
       if (!origin) return callback(null, true);
 
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
 
-      // Explicit rejection (IMPORTANT)
       return callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
@@ -102,10 +126,10 @@ app.use(
   })
 );
 
-// 🔥 REQUIRED for preflight
+// 🔥 SAFARI-SAFE PREFLIGHT
 app.options("*", cors({
-  origin: allowedOrigins,
-  credentials: true
+  origin: true,
+  credentials: true,
 }));
 
 // ======================
@@ -204,6 +228,8 @@ app.use("/api/v1", billingRoutes);
 app.use("/api/ar-stats", arStatsRoutes);
 app.use("/api/feedback", feedbackRoutes);
 app.use("/api", contactRoutes);
+app.use("/api/billing", billinggRoutes);
+
 
 // 🔹 SUBSCRIPTION ROUTES
 
