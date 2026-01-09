@@ -73,6 +73,8 @@ const allowedOrigins = [
   "http://localhost:3000",
   "https://dishpop-restro-side-frontend-cml9.vercel.app",
   "https://www.dishpop.in",
+    "https://api.dishpop.in" // 👈 add backend domain if applicable
+
 
 ];
 
@@ -96,7 +98,10 @@ app.use(
 );
 
 // 🔥 REQUIRED for preflight
-app.options("*", cors());
+app.options("*", cors({
+  origin: allowedOrigins,
+  credentials: true
+}));
 
 // ======================
 // GLOBAL MIDDLEWARES
