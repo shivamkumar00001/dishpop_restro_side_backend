@@ -1,4 +1,4 @@
-const Bill = require("../models/bill");
+const Bill = require("../models/Bill");
 const Session = require("../models/session");
 const Customer = require("../models/customers");
 const asyncHandler = require("../middlewares/asyncHandler");
