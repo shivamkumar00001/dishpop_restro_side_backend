@@ -11,8 +11,6 @@ const {
   sendForgotOTP,
   verifyForgotOTP,
   resetPassword,
-    refreshAccessToken, // 🔥 ADD THIS
-
 } = require("../controllers/auth.controller.js");
 
 const isAuthenticated = require("../middlewares/isAuthenticated");
@@ -49,15 +47,11 @@ router.post("/login", login);
 router.post("/forgot-password", sendForgotOTP);
 router.post("/verify-forgot-otp", verifyForgotOTP);
 router.post("/reset-password", resetPassword);
-router.post("/refresh", refreshAccessToken);
-
 
 /* ================================
    LOGOUT (PROTECTED)
 ================================= */
-// router.post("/logout", isAuthenticated, logout);
-router.post("/logout", logout);
-
+router.post("/logout", isAuthenticated, logout);
 
 /* ================================
    CHECK USERNAME AVAILABILITY
