@@ -49,13 +49,15 @@ router.post("/login", login);
 router.post("/forgot-password", sendForgotOTP);
 router.post("/verify-forgot-otp", verifyForgotOTP);
 router.post("/reset-password", resetPassword);
-router.get("/refresh", refreshAccessToken);
+router.post("/refresh", refreshAccessToken);
 
 
 /* ================================
    LOGOUT (PROTECTED)
 ================================= */
-router.post("/logout", isAuthenticated, logout);
+// router.post("/logout", isAuthenticated, logout);
+router.post("/logout", logout);
+
 
 /* ================================
    CHECK USERNAME AVAILABILITY
