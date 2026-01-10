@@ -136,13 +136,43 @@ const login = catchAsyncError(async (req, res, next) => {
 
 // ==================== LOGOUT ====================
 // ==================== LOGOUT ====================
+// const logout = catchAsyncError(async (req, res, next) => {
+//   const isProd = process.env.NODE_ENV === "production";
+
+//   res.cookie("token", "", {
+//     expires: new Date(0),
+//     httpOnly: true,
+//     secure: isProd,                 // 🔥 MUST MATCH sendToken
+//     sameSite: isProd ? "none" : "lax",
+//   });
+
+//   res.status(200).json({
+//     success: true,
+//     message: "Logged out successfully",
+//   });
+// });
+
 const logout = catchAsyncError(async (req, res, next) => {
   const isProd = process.env.NODE_ENV === "production";
+
+  if (req.user) {
+    await Owner.findByIdAndUpdate(req.user.id, {
+      refreshToken: null,
+      refreshTokenExpire: null,
+    });
+  }
 
   res.cookie("token", "", {
     expires: new Date(0),
     httpOnly: true,
-    secure: isProd,                 // 🔥 MUST MATCH sendToken
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+  });
+
+  res.cookie("refreshToken", "", {
+    expires: new Date(0),
+    httpOnly: true,
+    secure: isProd,
     sameSite: isProd ? "none" : "lax",
   });
 
@@ -151,7 +181,6 @@ const logout = catchAsyncError(async (req, res, next) => {
     message: "Logged out successfully",
   });
 });
-
 
 
 // ==================== PROFILE ====================
@@ -340,6 +369,38 @@ const resetPassword = catchAsyncError(async (req, res, next) => {
   return sendToken(user, 200, "Password reset successfully. Logged in.", res);
 });
 
+// const refreshAccessToken = catchAsyncError(async (req, res, next) => {
+//   const refreshToken = req.cookies?.refreshToken;
+
+//   if (!refreshToken) {
+//     return next(new ErrorHandler("Refresh token missing", 401));
+//   }
+
+//   const decoded = jwt.verify(refreshToken, process.env.REFRESH_SECRET);
+
+//   const user = await Owner.findById(decoded.id).select("+refreshToken");
+
+//   if (!user || user.refreshToken !== refreshToken) {
+//     return next(new ErrorHandler("Invalid refresh token", 401));
+//   }
+
+//   const newAccessToken = user.getAccessToken();
+
+//   const isProd = process.env.NODE_ENV === "production";
+
+//   res.cookie("token", newAccessToken, {
+//     httpOnly: true,
+//     secure: isProd,
+//     sameSite: isProd ? "none" : "lax",
+//     domain: isProd ? ".dishpop.in" : undefined,
+//     maxAge: 15 * 60 * 1000,
+//   });
+
+//   res.status(200).json({
+//     success: true,
+//     accessToken: newAccessToken,
+//   });
+// });
 const refreshAccessToken = catchAsyncError(async (req, res, next) => {
   const refreshToken = req.cookies?.refreshToken;
 
@@ -356,14 +417,14 @@ const refreshAccessToken = catchAsyncError(async (req, res, next) => {
   }
 
   const newAccessToken = user.getAccessToken();
-
   const isProd = process.env.NODE_ENV === "production";
 
   res.cookie("token", newAccessToken, {
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? "none" : "lax",
-    domain: isProd ? ".dishpop.in" : undefined,
+    // ❌ REMOVE THIS LINE:
+    // domain: isProd ? ".dishpop.in" : undefined,
     maxAge: 15 * 60 * 1000,
   });
 
@@ -372,7 +433,6 @@ const refreshAccessToken = catchAsyncError(async (req, res, next) => {
     accessToken: newAccessToken,
   });
 });
-
 
 // ==================== EXPORT ====================
 module.exports = {
