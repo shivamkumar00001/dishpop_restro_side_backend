@@ -56,6 +56,8 @@ const errorMiddleware = require("./middlewares/error.js");
 // EXPRESS APP
 // ======================
 const app = express();
+app.set("trust proxy", 1);
+
 
 
 
@@ -108,7 +110,24 @@ const allowedOrigins = [
 // app.options("*", cors({
 //   origin: allowedOrigins,
 //   credentials: true
-// }));
+// // }));
+// app.use(
+//   cors({
+//     origin: (origin, callback) => {
+//       if (!origin) return callback(null, true);
+
+//       if (allowedOrigins.includes(origin)) {
+//         return callback(null, true);
+//       }
+
+//       return callback(new Error("Not allowed by CORS"));
+//     },
+//     credentials: true,
+//     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+//     allowedHeaders: ["Content-Type", "Authorization"],
+//   })
+// );
+
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -127,10 +146,10 @@ app.use(
 );
 
 // 🔥 SAFARI-SAFE PREFLIGHT
-app.options("*", cors({
-  origin: true,
-  credentials: true,
-}));
+// app.options("*", cors({
+//   origin: true,
+//   credentials: true,
+// }));
 
 // ======================
 // GLOBAL MIDDLEWARES
