@@ -17,14 +17,12 @@ exports.getMenu = async (req, res) => {
     }).sort({ order: 1, name: 1 });
 
     const dishes = await Dish.find({ username })
+      .select("-arModel") // keep menu light
       .populate("categoryId", "name icon")
       .populate("tags", "name type color")
       .populate({
         path: "addOnGroups",
-        populate: {
-          path: "addOns",
-          model: "AddOn",
-        },
+        populate: { path: "addOns", model: "AddOn" },
       })
       .sort({ popularityScore: -1, name: 1 });
 
@@ -82,6 +80,9 @@ exports.createDish = async (req, res) => {
       servingSize,
       allergens,
     } = req.body;
+    console.log("req.file:", req.file);
+    console.log("req.files:", req.files);
+
 
     // ================================
     // BASIC VALIDATION
@@ -98,14 +99,7 @@ exports.createDish = async (req, res) => {
     // ================================
     let parsedVariants = variants;
     if (typeof variants === "string") {
-      try {
-        parsedVariants = JSON.parse(variants);
-      } catch {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid variants format",
-        });
-      }
+      parsedVariants = JSON.parse(variants);
     }
 
     if (!Array.isArray(parsedVariants) || parsedVariants.length === 0) {
@@ -115,9 +109,6 @@ exports.createDish = async (req, res) => {
       });
     }
 
-    // ================================
-    // ENSURE ONLY ONE DEFAULT VARIANT
-    // ================================
     const defaultVariants = parsedVariants.filter((v) => v.isDefault);
     if (defaultVariants.length === 0) {
       parsedVariants[0].isDefault = true;
@@ -128,26 +119,9 @@ exports.createDish = async (req, res) => {
       });
     }
 
-    // ================================
-    // ❌ STRICT VARIANT NAME VALIDATION
-    // ================================
-    for (let i = 0; i < parsedVariants.length; i++) {
-      if (
-        !parsedVariants[i].name ||
-        typeof parsedVariants[i].name !== "string" ||
-        parsedVariants[i].name.trim() === ""
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: `Variant name is required for variant #${i + 1}`,
-        });
-      }
-    }
-
-    // Normalize variant names
-    parsedVariants = parsedVariants.map((variant) => ({
-      ...variant,
-      name: variant.name.trim(),
+    parsedVariants = parsedVariants.map((v) => ({
+      ...v,
+      name: v.name.trim(),
     }));
 
     // ================================
@@ -156,51 +130,73 @@ exports.createDish = async (req, res) => {
     let imageUrl = null;
     let thumbnailUrl = null;
 
-    if (req.file) {
+    if (req.files?.image?.[0]) {
+      const imageFile = req.files.image[0];
       const timestamp = Date.now();
-      const ext = req.file.mimetype.split("/")[1];
+      const ext = imageFile.mimetype.split("/")[1];
 
       const imageKey = `restaurants/${username}/dishes/${timestamp}-original.${ext}`;
       const thumbKey = `restaurants/${username}/dishes/${timestamp}-thumb.${ext}`;
 
       imageUrl = await uploadBuffer(
-        req.file.buffer,
+        imageFile.buffer,
         process.env.R2_BUCKET,
         imageKey,
-        req.file.mimetype
+        imageFile.mimetype
       );
 
       thumbnailUrl = await uploadBuffer(
-        req.file.buffer,
+        imageFile.buffer,
         process.env.R2_BUCKET,
         thumbKey,
-        req.file.mimetype
+        imageFile.mimetype
       );
+    }
+
+    // ================================
+    // AR MODEL UPLOAD (OPTIONAL)
+    // ================================
+    let arModel = {
+      glb: null,
+      usdz: null,
+      isAvailable: false,
+    };
+
+    if (req.files?.arGlb || req.files?.arUsdz) {
+      const timestamp = Date.now();
+
+      if (req.files.arGlb?.[0]) {
+        const glbFile = req.files.arGlb[0];
+        arModel.glb = await uploadBuffer(
+          glbFile.buffer,
+          process.env.R2_BUCKET,
+          `restaurants/${username}/ar/${timestamp}.glb`,
+          glbFile.mimetype
+        );
+      }
+
+      if (req.files.arUsdz?.[0]) {
+        const usdzFile = req.files.arUsdz[0];
+        arModel.usdz = await uploadBuffer(
+          usdzFile.buffer,
+          process.env.R2_BUCKET,
+          `restaurants/${username}/ar/${timestamp}.usdz`,
+          usdzFile.mimetype
+        );
+      }
+
+      arModel.isAvailable = Boolean(arModel.glb || arModel.usdz);
     }
 
     // ================================
     // PARSE OPTIONAL ARRAYS
     // ================================
-    const parsedTags = tags
-      ? typeof tags === "string"
-        ? JSON.parse(tags)
-        : tags
-      : [];
-
-    const parsedAddOns = addOnGroups
-      ? typeof addOnGroups === "string"
-        ? JSON.parse(addOnGroups)
-        : addOnGroups
-      : [];
-
-    const parsedAllergens = allergens
-      ? typeof allergens === "string"
-        ? JSON.parse(allergens)
-        : allergens
-      : [];
+    const parsedTags = tags ? JSON.parse(tags) : [];
+    const parsedAddOns = addOnGroups ? JSON.parse(addOnGroups) : [];
+    const parsedAllergens = allergens ? JSON.parse(allergens) : [];
 
     // ================================
-    // CREATE DISH
+    // CREATE DISH (FINAL FIX)
     // ================================
     const dish = await Dish.create({
       username,
@@ -218,6 +214,7 @@ exports.createDish = async (req, res) => {
       calories,
       servingSize,
       allergens: parsedAllergens,
+      arModel, // ✅ CORRECT
     });
 
     await dish.populate("categoryId tags addOnGroups");
@@ -242,8 +239,6 @@ exports.createDish = async (req, res) => {
 
 /**
  * @desc    Toggle dish availability
- * @route   PATCH /api/v1/restaurants/:username/menu/:dishId/toggle
- * @access  Private
  */
 exports.toggleDishAvailability = async (req, res) => {
   try {
@@ -251,10 +246,7 @@ exports.toggleDishAvailability = async (req, res) => {
 
     const dish = await Dish.findOne({ _id: dishId, username });
     if (!dish) {
-      return res.status(404).json({
-        success: false,
-        message: "Dish not found",
-      });
+      return res.status(404).json({ success: false, message: "Dish not found" });
     }
 
     dish.isAvailable = !dish.isAvailable;
@@ -267,35 +259,19 @@ exports.toggleDishAvailability = async (req, res) => {
     res.status(200).json({
       success: true,
       data: dish,
-      message: `Dish ${
-        dish.isAvailable ? "marked as available" : "marked as unavailable"
-      }`,
     });
   } catch (error) {
-    console.error("Toggle availability error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to toggle availability",
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /**
  * @desc    Attach add-on groups to dish
- * @route   PATCH /api/v1/restaurants/:username/menu/:dishId/addons
- * @access  Private
  */
 exports.attachAddOnsToDish = async (req, res) => {
   try {
     const { username, dishId } = req.params;
     const { addOnGroupIds } = req.body;
-
-    if (!Array.isArray(addOnGroupIds)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid add-on groups",
-      });
-    }
 
     const dish = await Dish.findOneAndUpdate(
       { _id: dishId, username },
@@ -307,10 +283,7 @@ exports.attachAddOnsToDish = async (req, res) => {
     });
 
     if (!dish) {
-      return res.status(404).json({
-        success: false,
-        message: "Dish not found",
-      });
+      return res.status(404).json({ success: false, message: "Dish not found" });
     }
 
     if (req.io) {
@@ -320,13 +293,8 @@ exports.attachAddOnsToDish = async (req, res) => {
     res.status(200).json({
       success: true,
       data: dish,
-      message: "Add-ons attached successfully",
     });
   } catch (error) {
-    console.error("Attach add-ons error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to attach add-ons",
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };

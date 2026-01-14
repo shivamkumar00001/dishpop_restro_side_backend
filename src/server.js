@@ -54,6 +54,8 @@ const errorMiddleware = require("./middlewares/error.js");
 // EXPRESS APP
 // ======================
 const app = express();
+app.set("trust proxy", 1);
+
 
 // ======================
 // 🔥 RAZORPAY WEBHOOK (MUST BE FIRST)
@@ -67,25 +69,79 @@ app.post(
 // ======================
 // CORS (PRODUCTION SAFE)
 // ======================
+// const allowedOrigins = [
+//   "http://localhost:5173",
+//   "http://localhost:5174",
+//   "http://localhost:3000",
+//   "https://dishpop-restro-side-frontend-cml9.vercel.app",
+//   "https://dishpop.in",       // 🔥 ADD THIS
+//   "https://www.dishpop.in",
+//   "https://api.dishpop.in"
+// ];
+
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:3000",
+
+  // Admin frontend
   "https://dishpop-restro-side-frontend-cml9.vercel.app",
+
+  // Main site
+  "https://dishpop.in",
   "https://www.dishpop.in",
 ];
+
+// app.use(
+//   cors({
+//     origin: (origin, callback) => {
+//       // Allow Postman, mobile apps, SSR
+//       if (!origin) return callback(null, true);
+
+//       if (allowedOrigins.includes(origin)) {
+//         return callback(null, true);
+//       }
+
+//       // Explicit rejection (IMPORTANT)
+//       return callback(new Error("Not allowed by CORS"));
+//     },
+//     credentials: true,
+//     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+//     allowedHeaders: ["Content-Type", "Authorization"],
+//   })
+// );
+
+// 🔥 REQUIRED for preflight
+// app.options("*", cors({
+//   origin: allowedOrigins,
+//   credentials: true
+// // }));
+// app.use(
+//   cors({
+//     origin: (origin, callback) => {
+//       if (!origin) return callback(null, true);
+
+//       if (allowedOrigins.includes(origin)) {
+//         return callback(null, true);
+//       }
+
+//       return callback(new Error("Not allowed by CORS"));
+//     },
+//     credentials: true,
+//     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+//     allowedHeaders: ["Content-Type", "Authorization"],
+//   })
+// );
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow Postman, mobile apps, SSR
       if (!origin) return callback(null, true);
 
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
 
-      // Explicit rejection (IMPORTANT)
       return callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
@@ -94,8 +150,11 @@ app.use(
   })
 );
 
-// 🔥 REQUIRED for preflight
-app.options("*", cors());
+// 🔥 SAFARI-SAFE PREFLIGHT
+// app.options("*", cors({
+//   origin: true,
+//   credentials: true,
+// }));
 
 // ======================
 // GLOBAL MIDDLEWARES
@@ -201,6 +260,13 @@ app.use("/api/v1/analytics", customerAnalyticsRoutes);
 
 // SUBSCRIPTION
 app.use("/api/subscription", subscriptionRoutes);
+// app.use("/api/subscription-status", require("./routes/subscriptionStatus.routes"));
+
+app.use(
+  "/api/subscription-status",
+  require("./routes/subscriptionStatus.routes")
+);
+
 
 // ======================
 // HEALTH CHECK
@@ -226,7 +292,9 @@ app.get("/version", (req, res) => {
     deployedAt: new Date().toISOString(),
   });
 });
+// model iamge file handler 
 
+app.use("/api/ar", arRoutes);
 // ======================
 // 404 HANDLER
 // ======================
