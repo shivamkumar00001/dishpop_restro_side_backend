@@ -4,6 +4,7 @@ const Customer = require("../models/customers");
 const asyncHandler = require("../middlewares/asyncHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 const { deleteCachePattern } = require("../config/redis");
+const CustomerAnalytics = require("../models/CustomerAnalytics");
 
 exports.getAllBills = asyncHandler(async (req, res, next) => {
   const { username } = req.params;
@@ -997,6 +998,43 @@ exports.finalizeBill = asyncHandler(async (req, res, next) => {
     { $set: { status: "completed" } }
   );
 
+ // 🆕 RECORD CUSTOMER ANALYTICS (SAFE + RELIABLE)
+try {
+  console.log("📊 Recording customer analytics...", {
+    billNumber: bill.billNumber,
+    customerName: bill.customerName,
+    phoneNumber: bill.phoneNumber,
+    grandTotal: bill.grandTotal,
+  });
+
+  // Hard guard – skip analytics only if critical data missing
+  if (!bill.customerName || !bill.phoneNumber) {
+    console.warn("⚠️ Analytics skipped: missing customer details");
+  } else {
+    const customerAnalytics = await CustomerAnalytics.findOrCreate(
+      username,
+      bill.customerName,
+      bill.phoneNumber
+    );
+
+    await customerAnalytics.recordVisit(
+      bill.billNumber,
+      Number(bill.grandTotal) || 0,
+      bill.tableNumber
+    );
+
+    console.log("✅ Customer analytics recorded");
+  }
+} catch (analyticsError) {
+  console.error("❌ Customer analytics failed", {
+    message: analyticsError.message,
+    code: analyticsError.code,
+    keyValue: analyticsError.keyValue,
+    stack: analyticsError.stack,
+  });
+}
+
+
   await deleteCachePattern(`orders:${username}:*`);
 
   if (req.io) {
@@ -1013,6 +1051,7 @@ exports.finalizeBill = asyncHandler(async (req, res, next) => {
     data: bill,
   });
 });
+
 
 exports.deleteBill = asyncHandler(async (req, res, next) => {
   const { username, billId } = req.params;

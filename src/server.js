@@ -32,18 +32,16 @@ const socketHandler = require("./config/socket.js");
 const authRoutes = require("./routes/auth.routes.js");
 const menuRoutes = require("./routes/menuRoutes.js");
 const dishRoutes = require("./routes/dishRoutes.js");
-const orderRoutes = require("./routes/orderRoutes.js"); // ✅ Enhanced with Redis
-
+const orderRoutes = require("./routes/orderRoutes.js");
 const billingRoutes = require("./routes/billingRoutes");
-
-
+const billingConfigRoutes = require("./routes/Billingconfig.routes.js"); // 🔥 NEW - GST Compliance
 const restaurantRoutes = require("./routes/restaurant.routes.js");
 const feedbackRoutes = require("./routes/feedback.routes.js");
 const arStatsRoutes = require("./routes/arStats.routes.js");
 const contactRoutes = require("./routes/contact.routes");
-const arRoutes = require("./routes/ar.routes.js");
-const billinggRoutes = require("./routes/billinggRoutes.js");
-const publicOrderRoutes = require("./routes/publicOrder.routes");
+// Around line 30 (with other route imports)
+const customerAnalyticsRoutes = require("./routes/customerAnalyticsRoutes.js");
+
 // ZOMATO-STYLE EXTENSIONS
 const categoryRoutes = require("./routes/category.routes.js");
 const addonRoutes = require("./routes/addOnRoutes.js");
@@ -59,9 +57,6 @@ const app = express();
 app.set("trust proxy", 1);
 
 
-
-
-
 // ======================
 // 🔥 RAZORPAY WEBHOOK (MUST BE FIRST)
 // ======================
@@ -70,8 +65,6 @@ app.post(
   express.raw({ type: "application/json" }),
   razorpayWebhookController.handleRazorpayWebhook
 );
-
-
 
 // ======================
 // CORS (PRODUCTION SAFE)
@@ -97,12 +90,6 @@ const allowedOrigins = [
   // Main site
   "https://dishpop.in",
   "https://www.dishpop.in",
-
-  // User frontend (🔥 REQUIRED)
-  "https://user.dishpop.in",
-
-  // API
-  "https://api.dishpop.in"
 ];
 
 // app.use(
@@ -202,8 +189,6 @@ mongoose
 // ======================
 // 🆕 REDIS INITIALIZATION
 // ======================
-// Initialize Redis for order caching
-// If REDIS_URL is not set, system runs without caching
 initRedis()
   .then(() => {
     if (process.env.REDIS_URL) {
@@ -256,20 +241,24 @@ app.use("/api/v1", dishRoutes);
 app.use("/api/v1/restaurants", categoryRoutes);
 app.use("/api/v1", addonRoutes);
 
-// ORDERS (✅ Enhanced with Redis caching)
+// ORDERS
 app.use("/api/v1", orderRoutes);
 app.use("/api/v1/tags", tagRoutes);
+
+// BILLING & GST COMPLIANCE
 app.use("/api/v1", billingRoutes); 
+app.use("/api/v1/billing", billingConfigRoutes); // 🔥 GST 
+// Configuration & Tax Compliance
+
+
 
 // OTHER
 app.use("/api/ar-stats", arStatsRoutes);
 app.use("/api/feedback", feedbackRoutes);
 app.use("/api", contactRoutes);
-app.use("/api/billing", billinggRoutes);
+app.use("/api/v1/analytics", customerAnalyticsRoutes);
 
-
-// 🔹 SUBSCRIPTION ROUTES
-
+// SUBSCRIPTION
 app.use("/api/subscription", subscriptionRoutes);
 // app.use("/api/subscription-status", require("./routes/subscriptionStatus.routes"));
 
@@ -279,13 +268,6 @@ app.use(
 );
 
 
-app.use("/api/v1", publicOrderRoutes);
-
-// app.post(
-//   "/api/subscription/webhook",
-//   express.raw({ type: "application/json" }),
-//   razorpayWebhookController.handleRazorpayWebhook  // ✅ matches export
-// );
 // ======================
 // HEALTH CHECK
 // ======================
@@ -332,12 +314,13 @@ app.use(errorMiddleware);
 // START SERVER
 // ======================
 const PORT = process.env.PORT || 5001;
-console.log("🚀 Backend version: 2025-12-22 v4 (with Redis order caching)");
+console.log("🚀 Backend version: 2025-01-15 v5 (Redis + GST Compliance)");
 
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📡 Socket.IO enabled for real-time orders`);
   console.log(`💾 Redis caching: ${process.env.REDIS_URL ? 'ENABLED' : 'DISABLED'}`);
+  console.log(`🧾 GST Billing Config API: ENABLED`);
 });
 
 // ======================
@@ -355,14 +338,11 @@ process.on("uncaughtException", (err) => {
 // ======================
 // 🆕 GRACEFUL SHUTDOWN
 // ======================
-// Close Redis connection on shutdown
 process.on("SIGTERM", async () => {
   console.log("SIGTERM signal received: closing HTTP server and Redis");
   
-  // Close Redis connection
   await closeRedis();
   
-  // Close HTTP server
   server.close(() => {
     console.log("HTTP server closed");
     process.exit(0);
@@ -372,10 +352,8 @@ process.on("SIGTERM", async () => {
 process.on("SIGINT", async () => {
   console.log("SIGINT signal received: closing HTTP server and Redis");
   
-  // Close Redis connection
   await closeRedis();
   
-  // Close HTTP server
   server.close(() => {
     console.log("HTTP server closed");
     process.exit(0);
