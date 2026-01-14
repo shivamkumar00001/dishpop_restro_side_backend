@@ -43,7 +43,7 @@ const arStatsRoutes = require("./routes/arStats.routes.js");
 const contactRoutes = require("./routes/contact.routes");
 const arRoutes = require("./routes/ar.routes.js");
 const billinggRoutes = require("./routes/billinggRoutes.js");
-
+const publicOrderRoutes = require("./routes/publicOrder.routes");
 // ZOMATO-STYLE EXTENSIONS
 const categoryRoutes = require("./routes/category.routes.js");
 const addonRoutes = require("./routes/addOnRoutes.js");
@@ -76,16 +76,34 @@ app.post(
 // ======================
 // CORS (PRODUCTION SAFE)
 // ======================
+// const allowedOrigins = [
+//   "http://localhost:5173",
+//   "http://localhost:5174",
+//   "http://localhost:3000",
+//   "https://dishpop-restro-side-frontend-cml9.vercel.app",
+//   "https://dishpop.in",       // 🔥 ADD THIS
+//   "https://www.dishpop.in",
+//   "https://api.dishpop.in"
+// ];
+
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:3000",
+
+  // Admin frontend
   "https://dishpop-restro-side-frontend-cml9.vercel.app",
-  "https://dishpop.in",       // 🔥 ADD THIS
+
+  // Main site
+  "https://dishpop.in",
   "https://www.dishpop.in",
+
+  // User frontend (🔥 REQUIRED)
+  "https://user.dishpop.in",
+
+  // API
   "https://api.dishpop.in"
 ];
-
 
 // app.use(
 //   cors({
@@ -259,6 +277,9 @@ app.use(
   "/api/subscription-status",
   require("./routes/subscriptionStatus.routes")
 );
+
+
+app.use("/api/v1", publicOrderRoutes);
 
 // app.post(
 //   "/api/subscription/webhook",
