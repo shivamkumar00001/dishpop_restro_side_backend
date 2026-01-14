@@ -18,7 +18,11 @@ router.get("/restaurants/:username/menu", getMenu);
 router.post(
   "/restaurants/:username/menu",
   isAuthenticated,
-  upload.single("image"),
+  upload.fields([
+    { name: "image", maxCount: 1 },
+    { name: "arGlb", maxCount: 1 },
+    { name: "arUsdz", maxCount: 1 },
+  ]),
   createDish
 );
 
