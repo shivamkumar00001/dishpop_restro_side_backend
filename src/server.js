@@ -41,7 +41,7 @@ const arStatsRoutes = require("./routes/arStats.routes.js");
 const contactRoutes = require("./routes/contact.routes");
 // Around line 30 (with other route imports)
 const customerAnalyticsRoutes = require("./routes/customerAnalyticsRoutes.js");
-
+const arRoutes = require("./routes/ar.routes.js");
 // ZOMATO-STYLE EXTENSIONS
 const categoryRoutes = require("./routes/category.routes.js");
 const addonRoutes = require("./routes/addOnRoutes.js");
@@ -257,7 +257,7 @@ app.use("/api/ar-stats", arStatsRoutes);
 app.use("/api/feedback", feedbackRoutes);
 app.use("/api", contactRoutes);
 app.use("/api/v1/analytics", customerAnalyticsRoutes);
-const arRoutes = require("./routes/ar.routes.js");
+
 
 // SUBSCRIPTION
 app.use("/api/subscription", subscriptionRoutes);
