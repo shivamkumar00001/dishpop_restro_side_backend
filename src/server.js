@@ -90,7 +90,14 @@ const allowedOrigins = [
   // Main site
   "https://dishpop.in",
   "https://www.dishpop.in",
+
+  // User frontend (🔥 REQUIRED)
+  "https://user.dishpop.in",
+
+  // API
+  "https://api.dishpop.in"
 ];
+
 
 // app.use(
 //   cors({
