@@ -39,6 +39,7 @@ const restaurantRoutes = require("./routes/restaurant.routes.js");
 const feedbackRoutes = require("./routes/feedback.routes.js");
 const arStatsRoutes = require("./routes/arStats.routes.js");
 const contactRoutes = require("./routes/contact.routes");
+const publicOrderRoutes = require("./routes/publicOrder.routes");
 // Around line 30 (with other route imports)
 const customerAnalyticsRoutes = require("./routes/customerAnalyticsRoutes.js");
 const arRoutes = require("./routes/ar.routes.js");
@@ -275,6 +276,7 @@ app.use(
   require("./routes/subscriptionStatus.routes")
 );
 
+app.use("/api/v1", publicOrderRoutes);
 
 // ======================
 // HEALTH CHECK
