@@ -257,6 +257,7 @@ app.use("/api/ar-stats", arStatsRoutes);
 app.use("/api/feedback", feedbackRoutes);
 app.use("/api", contactRoutes);
 app.use("/api/v1/analytics", customerAnalyticsRoutes);
+const arRoutes = require("./routes/ar.routes.js");
 
 // SUBSCRIPTION
 app.use("/api/subscription", subscriptionRoutes);
