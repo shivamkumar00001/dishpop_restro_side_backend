@@ -43,6 +43,9 @@ const publicOrderRoutes = require("./routes/publicOrder.routes");
 // Around line 30 (with other route imports)
 const customerAnalyticsRoutes = require("./routes/customerAnalyticsRoutes.js");
 const arRoutes = require("./routes/ar.routes.js");
+
+// gst audits 
+const gstAuditRoutes = require("./routes/gstAudit.routes.js");
 // ZOMATO-STYLE EXTENSIONS
 const categoryRoutes = require("./routes/category.routes.js");
 const addonRoutes = require("./routes/addOnRoutes.js");
