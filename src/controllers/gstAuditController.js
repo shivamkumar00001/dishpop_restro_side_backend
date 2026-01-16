@@ -1,5 +1,4 @@
 const GSTAuditLog = require("../models/GSTAuditLog");
-const Bill = require("../models/Bill");
 const BillingConfig = require("../models/billinggdetails");
 const asyncHandler = require("../middlewares/asyncHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
@@ -22,13 +21,15 @@ exports.getGSTAuditLogs = asyncHandler(async (req, res, next) => {
     limit = 50,
   } = req.query;
 
+  // Authorization check
   if (req.user.username !== username) {
     return next(new ErrorHandler("Unauthorized access", 403));
   }
 
+  // Build optimized query
   const query = { username };
 
-  // Date range filter
+  // Date range filter with proper indexing
   if (startDate || endDate) {
     query.billedAt = {};
     if (startDate) {
@@ -51,13 +52,16 @@ exports.getGSTAuditLogs = asyncHandler(async (req, res, next) => {
 
   const skip = (parseInt(page) - 1) * parseInt(limit);
 
-  const logs = await GSTAuditLog.find(query)
-    .sort({ billedAt: -1 })
-    .limit(parseInt(limit))
-    .skip(skip)
-    .lean();
-
-  const total = await GSTAuditLog.countDocuments(query);
+  // Execute query with lean() for performance
+  const [logs, total] = await Promise.all([
+    GSTAuditLog.find(query)
+      .sort({ billedAt: -1 })
+      .limit(parseInt(limit))
+      .skip(skip)
+      .select('-__v') // Exclude version key
+      .lean(),
+    GSTAuditLog.countDocuments(query)
+  ]);
 
   res.status(200).json({
     success: true,
@@ -70,7 +74,7 @@ exports.getGSTAuditLogs = asyncHandler(async (req, res, next) => {
 });
 
 /**
- * @desc    Get GST summary for period
+ * @desc    Get GST summary for period (OPTIMIZED - PRODUCTION)
  * @route   GET /api/v1/gst-audit/:username/summary
  * @access  Private
  */
@@ -78,6 +82,7 @@ exports.getGSTSummary = asyncHandler(async (req, res, next) => {
   const { username } = req.params;
   const { startDate, endDate } = req.query;
 
+  // Authorization check
   if (req.user.username !== username) {
     return next(new ErrorHandler("Unauthorized access", 403));
   }
@@ -86,10 +91,41 @@ exports.getGSTSummary = asyncHandler(async (req, res, next) => {
     return next(new ErrorHandler("Please provide startDate and endDate", 400));
   }
 
-  const summary = await GSTAuditLog.getGSTSummary(username, startDate, endDate);
+  // Parse dates efficiently
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+  
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
 
-  // Calculate totals
-  const totals = summary.reduce(
+  // Optimized aggregation pipeline - Direct MongoDB aggregation
+  const breakdown = await GSTAuditLog.aggregate([
+    {
+      $match: {
+        username,
+        status: { $ne: "CANCELLED" },
+        billedAt: { $gte: start, $lte: end }
+      }
+    },
+    {
+      $group: {
+        _id: "$gstType",
+        totalBills: { $sum: 1 },
+        totalSales: { $sum: "$grandTotal" },
+        totalTaxableAmount: { $sum: "$taxableAmount" },
+        totalCGST: { $sum: "$cgstAmount" },
+        totalSGST: { $sum: "$sgstAmount" },
+        totalIGST: { $sum: "$igstAmount" },
+        totalGST: { $sum: "$totalGST" }
+      }
+    },
+    {
+      $sort: { _id: 1 }
+    }
+  ]);
+
+  // Calculate overall totals efficiently
+  const totals = breakdown.reduce(
     (acc, curr) => ({
       totalBills: acc.totalBills + curr.totalBills,
       totalSales: acc.totalSales + curr.totalSales,
@@ -113,7 +149,7 @@ exports.getGSTSummary = asyncHandler(async (req, res, next) => {
   res.status(200).json({
     success: true,
     data: {
-      breakdown: summary,
+      breakdown,
       totals,
     },
   });
@@ -178,7 +214,7 @@ exports.getTaxRateBreakdown = asyncHandler(async (req, res, next) => {
 });
 
 /**
- * @desc    Export GST audit logs to Excel
+ * @desc    Export GST audit logs to Excel (OPTIMIZED FOR PRODUCTION)
  * @route   GET /api/v1/gst-audit/:username/export
  * @access  Private
  */
@@ -186,11 +222,7 @@ exports.exportGSTAuditToExcel = asyncHandler(async (req, res, next) => {
   const { username } = req.params;
   const { startDate, endDate, gstType } = req.query;
 
-  console.log("\n🔍 EXPORT REQUEST:");
-  console.log("   Username:", username);
-  console.log("   Start Date:", startDate);
-  console.log("   End Date:", endDate);
-
+  // Authorization check
   if (req.user.username !== username) {
     return next(new ErrorHandler("Unauthorized access", 403));
   }
@@ -200,73 +232,153 @@ exports.exportGSTAuditToExcel = asyncHandler(async (req, res, next) => {
   }
 
   // Parse dates
-  const start = new Date(startDate + "T00:00:00.000");
-  const end = new Date(endDate + "T23:59:59.999");
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+  
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
 
+  // Build query
   const query = {
     username,
     status: { $ne: "CANCELLED" },
-    billedAt: {
-      $gte: start,
-      $lte: end,
-    },
+    billedAt: { $gte: start, $lte: end },
   };
 
   if (gstType) query.gstType = gstType;
 
-  const logs = await GSTAuditLog.find(query).sort({ billedAt: 1 }).lean();
-
-  console.log(`   ✅ Found ${logs.length} logs`);
+  // Fetch data in parallel for performance
+  const [logs, billingConfig] = await Promise.all([
+    GSTAuditLog.find(query).sort({ billedAt: 1 }).lean(),
+    BillingConfig.findOne({ username }).lean()
+  ]);
 
   if (logs.length === 0) {
     return next(new ErrorHandler("No audit logs found for the selected period", 404));
   }
 
-  // Log first record for debugging
-  console.log("   📋 First log:", {
-    billNumber: logs[0].billNumber,
-    customer: logs[0].customerName,
-    total: logs[0].grandTotal,
-    subtotal: logs[0].subtotal,
-  });
-
-  // Get billing config
-  const billingConfig = await BillingConfig.findOne({ username });
-
   // Create workbook
   const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'DishPop GST System';
+  workbook.created = new Date();
+  workbook.company = billingConfig?.legalName || 'Restaurant';
+
+  // Calculate totals once for efficiency
+  const totals = logs.reduce(
+    (acc, log) => ({
+      count: acc.count + 1,
+      subtotal: acc.subtotal + (parseFloat(log.subtotal) || 0),
+      discount: acc.discount + (parseFloat(log.discount) || 0),
+      taxable: acc.taxable + (parseFloat(log.taxableAmount) || 0),
+      cgst: acc.cgst + (parseFloat(log.cgstAmount) || 0),
+      sgst: acc.sgst + (parseFloat(log.sgstAmount) || 0),
+      igst: acc.igst + (parseFloat(log.igstAmount) || 0),
+      totalGST: acc.totalGST + (parseFloat(log.totalGST) || 0),
+      grandTotal: acc.grandTotal + (parseFloat(log.grandTotal) || 0),
+    }),
+    {
+      count: 0,
+      subtotal: 0,
+      discount: 0,
+      taxable: 0,
+      cgst: 0,
+      sgst: 0,
+      igst: 0,
+      totalGST: 0,
+      grandTotal: 0,
+    }
+  );
 
   // ===========================================
-  // SHEET 1: BUSINESS INFO
+  // SHEET 1: BUSINESS INFO (COVER PAGE)
   // ===========================================
   const infoSheet = workbook.addWorksheet("Business Info");
   
-  infoSheet.addRow(["Field", "Value"]);
-  infoSheet.addRow(["Legal Name", billingConfig?.legalName || "N/A"]);
-  infoSheet.addRow(["GST Number", billingConfig?.gstNumber || "N/A"]);
-  infoSheet.addRow(["PAN Number", billingConfig?.panNumber || "N/A"]);
-  infoSheet.addRow(["Address", billingConfig?.address || "N/A"]);
-  infoSheet.addRow(["State", billingConfig?.state || "N/A"]);
-  infoSheet.addRow(["Pincode", billingConfig?.pincode || "N/A"]);
-  infoSheet.addRow(["Tax Type", billingConfig?.taxType || "N/A"]);
-  infoSheet.addRow(["Tax Rate", billingConfig?.taxRate ? `${billingConfig.taxRate}%` : "N/A"]);
-  infoSheet.addRow([]);
-  infoSheet.addRow(["Report Period", ""]);
-  infoSheet.addRow(["Start Date", start.toLocaleDateString('en-IN')]);
-  infoSheet.addRow(["End Date", end.toLocaleDateString('en-IN')]);
-  infoSheet.addRow(["Total Records", logs.length]);
+  infoSheet.columns = [
+    { header: "Field", key: "field", width: 30 },
+    { header: "Value", key: "value", width: 50 }
+  ];
 
-  infoSheet.getColumn(1).width = 25;
-  infoSheet.getColumn(2).width = 40;
+  // Title
+  infoSheet.mergeCells('A1:B1');
+  const titleCell = infoSheet.getCell('A1');
+  titleCell.value = '🧾 GST AUDIT REPORT';
+  titleCell.font = { bold: true, size: 16, color: { argb: 'FF4472C4' } };
+  titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } };
+  infoSheet.getRow(1).height = 30;
 
-  console.log("   ✅ Created Business Info sheet");
+  infoSheet.addRow({});
+
+  // Business Details
+  const businessHeader = infoSheet.addRow({ field: 'BUSINESS DETAILS', value: '' });
+  businessHeader.font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
+  businessHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
+
+  [
+    { field: "Legal Name", value: billingConfig?.legalName || "N/A" },
+    { field: "GST Number", value: billingConfig?.gstNumber || "N/A" },
+    { field: "PAN Number", value: billingConfig?.panNumber || "N/A" },
+    { field: "Address", value: billingConfig?.address || "N/A" },
+    { field: "State", value: billingConfig?.state || "N/A" },
+    { field: "Pincode", value: billingConfig?.pincode || "N/A" },
+    { field: "Tax Type", value: billingConfig?.taxType || "N/A" },
+    { field: "Tax Rate", value: billingConfig?.taxRate ? `${billingConfig.taxRate}%` : "N/A" },
+  ].forEach(item => {
+    const row = infoSheet.addRow(item);
+    row.getCell('field').font = { bold: true };
+  });
+
+  infoSheet.addRow({});
+
+  // Report Period
+  const periodHeader = infoSheet.addRow({ field: 'REPORT PERIOD', value: '' });
+  periodHeader.font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
+  periodHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
+
+  [
+    { field: "Start Date", value: start.toLocaleDateString('en-IN') },
+    { field: "End Date", value: end.toLocaleDateString('en-IN') },
+    { field: "Total Transactions", value: logs.length },
+    { field: "Generated On", value: new Date().toLocaleString('en-IN') },
+  ].forEach(item => {
+    const row = infoSheet.addRow(item);
+    row.getCell('field').font = { bold: true };
+  });
+
+  infoSheet.addRow({});
+
+  // Quick Summary
+  const summaryHeader = infoSheet.addRow({ field: 'QUICK SUMMARY', value: '' });
+  summaryHeader.font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
+  summaryHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF28A745' } };
+
+  [
+    { field: "Total Revenue", value: `₹${totals.grandTotal.toFixed(2)}` },
+    { field: "Total GST Collected", value: `₹${totals.totalGST.toFixed(2)}` },
+    { field: "Total Taxable Amount", value: `₹${totals.taxable.toFixed(2)}` },
+    { field: "Average Bill Value", value: `₹${(totals.grandTotal / totals.count).toFixed(2)}` },
+  ].forEach(item => {
+    const row = infoSheet.addRow(item);
+    row.getCell('field').font = { bold: true };
+    row.getCell('value').font = { bold: true, color: { argb: 'FF28A745' } };
+  });
+
+  infoSheet.addRow({});
+
+  const noteRow = infoSheet.addRow({ 
+    field: "📊 Detailed transaction data is available in the 'Transactions' sheet", 
+    value: "" 
+  });
+  infoSheet.mergeCells(`A${noteRow.number}:B${noteRow.number}`);
+  noteRow.font = { italic: true, size: 11, color: { argb: 'FF666666' } };
+  noteRow.alignment = { horizontal: 'center' };
 
   // ===========================================
-  // SHEET 2: TRANSACTIONS
+  // SHEET 2: TRANSACTIONS (DETAILED DATA)
   // ===========================================
   const transSheet = workbook.addWorksheet("Transactions");
 
-  // Add headers
   transSheet.columns = [
     { header: "Date", key: "date", width: 12 },
     { header: "Bill Number", key: "billNumber", width: 15 },
@@ -282,149 +394,114 @@ exports.exportGSTAuditToExcel = asyncHandler(async (req, res, next) => {
     { header: "SGST", key: "sgst", width: 12 },
     { header: "IGST", key: "igst", width: 12 },
     { header: "Total GST", key: "totalGST", width: 12 },
-    { header: "Grand Total", key: "grandTotal", width: 12 },
+    { header: "Grand Total", key: "grandTotal", width: 15 },
     { header: "Payment", key: "payment", width: 15 },
   ];
 
-  // Add data rows
-  let rowCount = 0;
-  for (const log of logs) {
-    try {
-      const billDate = new Date(log.billedAt);
-      
-      const row = {
-        date: billDate.toLocaleDateString('en-IN'),
-        billNumber: String(log.billNumber || ""),
-        customer: String(log.customerName || ""),
-        phone: String(log.customerPhone || "-"),
-        table: Number(log.tableNumber || 0),
-        subtotal: Number(log.subtotal || 0),
-        discount: Number(log.discount || 0),
-        taxable: Number(log.taxableAmount || 0),
-        gstType: String(log.gstType || "NO_GST"),
-        gstRate: String(log.gstRate || 0) + "%",
-        cgst: Number(log.cgstAmount || 0),
-        sgst: Number(log.sgstAmount || 0),
-        igst: Number(log.igstAmount || 0),
-        totalGST: Number(log.totalGST || 0),
-        grandTotal: Number(log.grandTotal || 0),
-        payment: String(log.paymentMethod || "N/A"),
-      };
+  // Style header
+  const headerRow = transSheet.getRow(1);
+  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+  headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4472C4" } };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  headerRow.height = 20;
 
-      transSheet.addRow(row);
-      rowCount++;
+  // Batch insert rows for performance
+  const rowsData = logs.map(log => {
+    const billDate = new Date(log.billedAt);
+    const subtotal = parseFloat(log.subtotal) || 0;
+    const discount = parseFloat(log.discount) || 0;
+    const taxableAmount = parseFloat(log.taxableAmount) || (subtotal - discount);
+    const cgstAmount = parseFloat(log.cgstAmount) || 0;
+    const sgstAmount = parseFloat(log.sgstAmount) || 0;
+    const igstAmount = parseFloat(log.igstAmount) || 0;
+    const totalGST = cgstAmount + sgstAmount + igstAmount;
+    const grandTotal = parseFloat(log.grandTotal) || 0;
 
-      if (rowCount === 1) {
-        console.log("   📝 First row added:", row);
-      }
-    } catch (err) {
-      console.error("   ❌ Error adding row:", err.message);
-    }
-  }
-
-  console.log(`   ✅ Added ${rowCount} transaction rows`);
-
-  // Format currency columns
-  const currencyCols = ["F", "G", "H", "K", "L", "M", "N", "O"];
-  currencyCols.forEach((col) => {
-    transSheet.getColumn(col).numFmt = "₹#,##0.00";
-  });
-
-  // Style headers for both sheets
-  [infoSheet, transSheet].forEach((sheet) => {
-    const headerRow = sheet.getRow(1);
-    headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
-    headerRow.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FF4472C4" },
+    return {
+      date: billDate.toLocaleDateString('en-IN'),
+      billNumber: String(log.billNumber || ""),
+      customer: String(log.customerName || "Walk-in"),
+      phone: String(log.customerPhone || "-"),
+      table: parseInt(log.tableNumber) || 0,
+      subtotal,
+      discount,
+      taxable: taxableAmount,
+      gstType: String(log.gstType || "NO_GST"),
+      gstRate: `${parseFloat(log.gstRate) || 0}%`,
+      cgst: cgstAmount,
+      sgst: sgstAmount,
+      igst: igstAmount,
+      totalGST,
+      grandTotal,
+      payment: String(log.paymentMethod || "CASH"),
     };
   });
 
-  console.log("   ✅ Created Transactions sheet");
+  transSheet.addRows(rowsData);
+
+  // Apply formatting to all data rows efficiently
+  transSheet.eachRow((row, rowNumber) => {
+    if (rowNumber > 1) {
+      ['subtotal', 'discount', 'taxable', 'cgst', 'sgst', 'igst', 'totalGST', 'grandTotal'].forEach(key => {
+        row.getCell(key).numFmt = '₹#,##0.00';
+      });
+      row.alignment = { vertical: 'middle' };
+      row.getCell('totalGST').font = { color: { argb: 'FFDC143C' } };
+      row.getCell('grandTotal').font = { bold: true };
+    }
+  });
 
   // ===========================================
-  // SHEET 3: SUMMARY
+  // SHEET 3: SUMMARY (AGGREGATED DATA)
   // ===========================================
   const summarySheet = workbook.addWorksheet("Summary");
 
-  const totals = logs.reduce(
-    (acc, log) => ({
-      count: acc.count + 1,
-      subtotal: acc.subtotal + (Number(log.subtotal) || 0),
-      discount: acc.discount + (Number(log.discount) || 0),
-      taxable: acc.taxable + (Number(log.taxableAmount) || 0),
-      cgst: acc.cgst + (Number(log.cgstAmount) || 0),
-      sgst: acc.sgst + (Number(log.sgstAmount) || 0),
-      igst: acc.igst + (Number(log.igstAmount) || 0),
-      totalGST: acc.totalGST + (Number(log.totalGST) || 0),
-      grandTotal: acc.grandTotal + (Number(log.grandTotal) || 0),
-    }),
-    {
-      count: 0,
-      subtotal: 0,
-      discount: 0,
-      taxable: 0,
-      cgst: 0,
-      sgst: 0,
-      igst: 0,
-      totalGST: 0,
-      grandTotal: 0,
+  summarySheet.columns = [
+    { header: "Metric", key: "metric", width: 30 },
+    { header: "Value", key: "value", width: 25 }
+  ];
+
+  const summaryData = [
+    { metric: "Total Bills", value: totals.count },
+    { metric: "Total Subtotal", value: totals.subtotal },
+    { metric: "Total Discount", value: totals.discount },
+    { metric: "Total Taxable Amount", value: totals.taxable },
+    { metric: "Total CGST", value: totals.cgst },
+    { metric: "Total SGST", value: totals.sgst },
+    { metric: "Total IGST", value: totals.igst },
+    { metric: "Total GST Collected", value: totals.totalGST },
+    { metric: "Total Revenue", value: totals.grandTotal },
+  ];
+
+  summaryData.forEach((item, index) => {
+    const row = summarySheet.addRow(item);
+    if (index > 0) {
+      row.getCell('value').numFmt = '₹#,##0.00';
     }
-  );
+    row.getCell('metric').font = { bold: true };
+  });
 
-  summarySheet.addRow(["Metric", "Value"]);
-  summarySheet.addRow(["Total Bills", totals.count]);
-  summarySheet.addRow(["Total Subtotal", `₹${totals.subtotal.toFixed(2)}`]);
-  summarySheet.addRow(["Total Discount", `₹${totals.discount.toFixed(2)}`]);
-  summarySheet.addRow(["Total Taxable", `₹${totals.taxable.toFixed(2)}`]);
-  summarySheet.addRow(["Total CGST", `₹${totals.cgst.toFixed(2)}`]);
-  summarySheet.addRow(["Total SGST", `₹${totals.sgst.toFixed(2)}`]);
-  summarySheet.addRow(["Total IGST", `₹${totals.igst.toFixed(2)}`]);
-  summarySheet.addRow(["Total GST", `₹${totals.totalGST.toFixed(2)}`]);
-  summarySheet.addRow(["Total Revenue", `₹${totals.grandTotal.toFixed(2)}`]);
+  const summaryHeaderRow = summarySheet.getRow(1);
+  summaryHeaderRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  summaryHeaderRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4472C4" } };
 
-  summarySheet.getColumn(1).width = 25;
-  summarySheet.getColumn(2).width = 20;
+  // Set active sheet to Business Info
+  workbook.views = [{ activeTab: 0, visibility: 'visible' }];
 
-  // Style summary header
-  const summaryHeader = summarySheet.getRow(1);
-  summaryHeader.font = { bold: true, color: { argb: "FFFFFFFF" } };
-  summaryHeader.fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF4472C4" },
-  };
-
-  console.log("   ✅ Created Summary sheet");
-
-  // ===========================================
-  // WRITE TO RESPONSE
-  // ===========================================
+  // Generate filename
   const filename = `GST_Audit_${username}_${startDate}_to_${endDate}.xlsx`;
 
-  console.log("   📦 Writing Excel file to response...");
-  console.log("   📊 Workbook contains:", workbook.worksheets.map(ws => ws.name));
-
-  res.setHeader(
-    "Content-Type",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-  );
+  // Set headers for download
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
 
-  // 🔥 CRITICAL: Write to buffer first, then send
-  try {
-    const buffer = await workbook.xlsx.writeBuffer();
-    console.log(`   ✅ Generated Excel buffer: ${buffer.length} bytes`);
-    
-    res.send(buffer);
-    console.log("   ✅ Excel file sent successfully\n");
-  } catch (writeError) {
-    console.error("   ❌ Error writing Excel:", writeError);
-    throw writeError;
-  }
+  // Write to buffer and send
+  const buffer = await workbook.xlsx.writeBuffer();
+  res.send(buffer);
 });
-
 
 /**
  * @desc    Sync bill to GST audit log (called when bill is finalized)
@@ -432,7 +509,6 @@ exports.exportGSTAuditToExcel = asyncHandler(async (req, res, next) => {
  */
 exports.syncBillToAuditLog = async (bill, billingConfig) => {
   try {
-    // Calculate GST breakdown based on billing config
     let cgstAmount = 0;
     let sgstAmount = 0;
     let igstAmount = 0;
@@ -480,9 +556,8 @@ exports.syncBillToAuditLog = async (bill, billingConfig) => {
       },
       { upsert: true, new: true }
     );
-
-    console.log(`✅ GST audit log synced for bill ${bill.billNumber}`);
   } catch (error) {
     console.error("❌ Failed to sync GST audit log:", error);
+    throw error;
   }
 };
