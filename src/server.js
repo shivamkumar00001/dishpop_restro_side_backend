@@ -42,6 +42,10 @@ const contactRoutes = require("./routes/contact.routes");
 // Around line 30 (with other route imports)
 const customerAnalyticsRoutes = require("./routes/customerAnalyticsRoutes.js");
 
+// gst audits 
+const gstAuditRoutes = require("./routes/gstAudit.routes.js");
+
+
 // ZOMATO-STYLE EXTENSIONS
 const categoryRoutes = require("./routes/category.routes.js");
 const addonRoutes = require("./routes/addOnRoutes.js");
@@ -190,6 +194,9 @@ app.use("/api/v1/tags", tagRoutes);
 app.use("/api/v1", billingRoutes); 
 app.use("/api/v1/billing", billingConfigRoutes); // 🔥 GST 
 // Configuration & Tax Compliance
+
+// 🆕 GST AUDIT LOG
+app.use("/api/v1/gst-audit", gstAuditRoutes);
 
 
 
