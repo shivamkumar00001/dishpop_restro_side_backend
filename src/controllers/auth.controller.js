@@ -1,16 +1,18 @@
 // ==================== IMPORTS ====================
 const ErrorHandler = require("../utils/ErrorHandler.js");
-const catchAsyncError = require("../middlewares/catchAsyncError.js")
+const catchAsyncError = require("../middlewares/catchAsyncError.js");
 const Owner = require("../models/Owner.js");
 const sendEmail = require("../utils/sendEmail.js");
 const sendToken = require("../utils/sendToken.js");
 const Dish = require("../models/Dish.js");
 const Review = require("../models/reviews.js");
-
+const {
+  uploadToCloudflare,
+  deleteFromCloudflare,
+} = require("../utils/cloudflareUpload.js");
 
 // Normalize email
 const normalizeEmail = (email = "") => email.toString().trim().toLowerCase();
-
 
 // ==================== REGISTER ====================
 const register = catchAsyncError(async (req, res, next) => {
@@ -73,7 +75,9 @@ const register = catchAsyncError(async (req, res, next) => {
   });
 
   if (existing)
-    return next(new ErrorHandler("Email, phone, or username already used.", 400));
+    return next(
+      new ErrorHandler("Email, phone, or username already used.", 400)
+    );
 
   // Create user
   const user = await Owner.create({
@@ -92,7 +96,6 @@ const register = catchAsyncError(async (req, res, next) => {
 
   return sendToken(user, 201, "Registration successful.", res);
 });
-
 
 // ==================== LOGIN ====================
 const login = catchAsyncError(async (req, res, next) => {
@@ -131,8 +134,6 @@ const login = catchAsyncError(async (req, res, next) => {
   return sendToken(user, 200, "Login successful.", res);
 });
 
-
-// ==================== LOGOUT ====================
 // ==================== LOGOUT ====================
 const logout = catchAsyncError(async (req, res, next) => {
   const isProd = process.env.NODE_ENV === "production";
@@ -140,7 +141,7 @@ const logout = catchAsyncError(async (req, res, next) => {
   res.cookie("token", "", {
     expires: new Date(0),
     httpOnly: true,
-    secure: isProd,                 // 🔥 MUST MATCH sendToken
+    secure: isProd,
     sameSite: isProd ? "none" : "lax",
   });
 
@@ -150,9 +151,6 @@ const logout = catchAsyncError(async (req, res, next) => {
   });
 });
 
-
-
-// ==================== PROFILE ====================
 // ==================== PROFILE ====================
 const getProfile = catchAsyncError(async (req, res, next) => {
   if (!req.user) {
@@ -162,13 +160,12 @@ const getProfile = catchAsyncError(async (req, res, next) => {
   const user = await Owner.findOne({ username: req.user.username });
   if (!user) return next(new ErrorHandler("User not found.", 404));
 
-
-  // 2️⃣ Dynamic dish count
+  // Dynamic dish count
   const dishCount = await Dish.countDocuments({
     username: user.username,
   });
 
-  // 3️⃣ Average review rating (ONLY rating)
+  // Average review rating
   const ratingAgg = await Review.aggregate([
     { $match: { username: user.username } },
     {
@@ -180,22 +177,18 @@ const getProfile = catchAsyncError(async (req, res, next) => {
   ]);
 
   const avgRating =
-    ratingAgg.length > 0
-      ? Number(ratingAgg[0].avgRating.toFixed(1))
-      : null;
+    ratingAgg.length > 0 ? Number(ratingAgg[0].avgRating.toFixed(1)) : null;
 
-  // 4️⃣ Response
+  // Response
   res.status(200).json({
     success: true,
     user,
     stats: {
       dishes: dishCount,
-      rating: avgRating, // ⭐ dynamic review rating
+      rating: avgRating,
     },
   });
 });
-
-
 
 // ==================== UPDATE PROFILE ====================
 const updateProfile = catchAsyncError(async (req, res, next) => {
@@ -219,8 +212,51 @@ const updateProfile = catchAsyncError(async (req, res, next) => {
     }
   });
 
-  if (req.file) {
-    user.photo = `/uploads/${req.file.filename}`;
+  // 🔥 Handle profile photo
+  if (req.files && req.files.profilePhoto) {
+    const profileFile = req.files.profilePhoto[0];
+
+    // Delete old profile photo if exists
+    if (user.profilePhoto) {
+      await deleteFromCloudflare(user.profilePhoto);
+    }
+
+    // Upload new profile photo
+    const profileUrl = await uploadToCloudflare(
+      profileFile.buffer,
+      profileFile.originalname,
+      profileFile.mimetype
+    );
+
+    user.profilePhoto = profileUrl;
+  }
+
+  // 🔥 Handle gallery images (max 3)
+  if (req.files && req.files.galleryImages) {
+    const galleryFiles = req.files.galleryImages;
+
+    // Validate max 3 images
+    const totalImages = (user.galleryImages?.length || 0) + galleryFiles.length;
+    if (totalImages > 3) {
+      return next(new ErrorHandler("Maximum 3 gallery images allowed", 400));
+    }
+
+    // Upload each gallery image
+    for (const file of galleryFiles) {
+      const imageUrl = await uploadToCloudflare(
+        file.buffer,
+        file.originalname,
+        file.mimetype
+      );
+
+      const key = imageUrl.replace(`${process.env.R2_PUBLIC_URL_R}/`, "");
+
+      user.galleryImages.push({
+        url: imageUrl,
+        key: key,
+        uploadedAt: new Date(),
+      });
+    }
   }
 
   await user.save();
@@ -232,22 +268,106 @@ const updateProfile = catchAsyncError(async (req, res, next) => {
   });
 });
 
+// 🔥 NEW: DELETE GALLERY IMAGE
+const deleteGalleryImage = catchAsyncError(async (req, res, next) => {
+  const user = await Owner.findOne({ username: req.user.username });
+  if (!user) return next(new ErrorHandler("User not found.", 404));
 
+  const { imageId } = req.params;
+
+  // Find image in gallery
+  const imageIndex = user.galleryImages.findIndex(
+    (img) => img._id.toString() === imageId
+  );
+
+  if (imageIndex === -1) {
+    return next(new ErrorHandler("Image not found", 404));
+  }
+
+  const imageToDelete = user.galleryImages[imageIndex];
+
+  // Delete from Cloudflare R2
+  await deleteFromCloudflare(imageToDelete.url);
+
+  // Remove from array
+  user.galleryImages.splice(imageIndex, 1);
+
+  await user.save();
+
+  res.status(200).json({
+    success: true,
+    message: "Gallery image deleted successfully",
+    user,
+  });
+});
+
+ 
+ // 🔥 GET LANDING PAGE DATA (USER SIDE)
+const getLandingPageData = catchAsyncError(async (req, res, next) => {
+  const { username } = req.params;
+
+  console.log("🔍 Fetching landing page for username:", username);
+
+  const user = await Owner.findOne({ username }).select(
+    "restaurantName ownerName profilePhoto galleryImages description restaurantType city state"
+  );
+
+  if (!user) {
+    console.log("❌ Restaurant not found:", username);
+    return next(new ErrorHandler("Restaurant not found", 404));
+  }
+
+  console.log("✅ Found restaurant:", user.restaurantName);
+  console.log("📸 Gallery images count:", user.galleryImages?.length || 0);
+
+  // Get stats
+  const dishCount = await Dish.countDocuments({ username });
+
+  const ratingAgg = await Review.aggregate([
+    { $match: { username } },
+    { $group: { _id: "$username", avgRating: { $avg: "$rating" } } },
+  ]);
+
+  const reviewCount = await Review.countDocuments({ username });
+
+  const avgRating =
+    ratingAgg.length > 0 ? Number(ratingAgg[0].avgRating.toFixed(1)) : null;
+
+  const responseData = {
+    success: true,
+    restaurantName: user.restaurantName,
+    ownerName: user.ownerName,
+    profilePhoto: user.profilePhoto,
+    galleryImages: user.galleryImages || [],
+    description: user.description,
+    restaurantType: user.restaurantType,
+    city: user.city,
+    state: user.state,
+    rating: avgRating,
+    reviewCount,
+    dishCount,
+    stats: {
+      rating: avgRating,
+      reviews: reviewCount,
+      dishes: dishCount,
+    },
+  };
+
+  console.log("📤 Sending response:", JSON.stringify(responseData, null, 2));
+
+  res.status(200).json(responseData);
+});
 // ==================== FORGOT PASSWORD ====================
 const sendForgotOTP = catchAsyncError(async (req, res, next) => {
   let { email } = req.body;
   email = normalizeEmail(email);
 
-  if (!email?.trim())
-    return next(new ErrorHandler("Email required.", 400));
+  if (!email?.trim()) return next(new ErrorHandler("Email required.", 400));
 
   const user = await Owner.findOne({ email });
-  if (!user)
-    return next(new ErrorHandler("User not found.", 404));
+  if (!user) return next(new ErrorHandler("User not found.", 404));
 
-  // Generate OTP using model method
   const otp = user.generateResetOTP();
-
   await user.save({ validateBeforeSave: false });
 
   const emailHtml = `
@@ -255,16 +375,16 @@ const sendForgotOTP = catchAsyncError(async (req, res, next) => {
     <p>It expires in 10 minutes.</p>
   `;
 
-  // your sendEmail expects { email, subject, html: ... }
   await sendEmail({
     email: user.email,
     subject: "Password Reset OTP",
     html: emailHtml,
   });
 
-  return res.status(200).json({ success: true, message: "Reset OTP sent to email." });
+  return res
+    .status(200)
+    .json({ success: true, message: "Reset OTP sent to email." });
 });
-
 
 // ==================== VERIFY FORGOT OTP ====================
 const verifyForgotOTP = catchAsyncError(async (req, res, next) => {
@@ -274,12 +394,11 @@ const verifyForgotOTP = catchAsyncError(async (req, res, next) => {
   if (!email?.trim() || !otp?.trim())
     return next(new ErrorHandler("Email and OTP required.", 400));
 
-  // MUST select fields
-  const user = await Owner.findOne({ email })
-    .select("+resetOTP +resetOTPExpire");
+  const user = await Owner.findOne({ email }).select(
+    "+resetOTP +resetOTPExpire"
+  );
 
-  if (!user)
-    return next(new ErrorHandler("User not found.", 404));
+  if (!user) return next(new ErrorHandler("User not found.", 404));
 
   if (!user.resetOTP || user.resetOTP.toString() !== otp.toString())
     return next(new ErrorHandler("Invalid OTP.", 400));
@@ -290,13 +409,17 @@ const verifyForgotOTP = catchAsyncError(async (req, res, next) => {
   return res.status(200).json({ success: true, message: "OTP verified." });
 });
 
-
 // ==================== RESET PASSWORD ====================
 const resetPassword = catchAsyncError(async (req, res, next) => {
   let { email, otp, password, confirmPassword } = req.body;
   email = normalizeEmail(email);
 
-  if (!email?.trim() || !otp?.trim() || !password?.trim() || !confirmPassword?.trim())
+  if (
+    !email?.trim() ||
+    !otp?.trim() ||
+    !password?.trim() ||
+    !confirmPassword?.trim()
+  )
     return next(new ErrorHandler("All fields required.", 400));
 
   if (password !== confirmPassword)
@@ -311,12 +434,11 @@ const resetPassword = catchAsyncError(async (req, res, next) => {
       )
     );
 
-  // MUST select the OTP + password
-  const user = await Owner.findOne({ email })
-    .select("+resetOTP +resetOTPExpire +password");
+  const user = await Owner.findOne({ email }).select(
+    "+resetOTP +resetOTPExpire +password"
+  );
 
-  if (!user)
-    return next(new ErrorHandler("User not found.", 404));
+  if (!user) return next(new ErrorHandler("User not found.", 404));
 
   if (!user.resetOTP || user.resetOTP.toString() !== otp.toString())
     return next(new ErrorHandler("Invalid OTP.", 400));
@@ -324,19 +446,14 @@ const resetPassword = catchAsyncError(async (req, res, next) => {
   if (Date.now() > new Date(user.resetOTPExpire).getTime())
     return next(new ErrorHandler("OTP expired.", 400));
 
-  // Set new password (hashed via model middleware)
   user.password = password;
-
-  // Clear OTP
   user.resetOTP = undefined;
   user.resetOTPExpire = undefined;
 
   await user.save();
 
-  // Login immediately after reset
   return sendToken(user, 200, "Password reset successfully. Logged in.", res);
 });
-
 
 // ==================== EXPORT ====================
 module.exports = {
@@ -345,6 +462,8 @@ module.exports = {
   logout,
   getProfile,
   updateProfile,
+  deleteGalleryImage,
+  getLandingPageData,
   sendForgotOTP,
   verifyForgotOTP,
   resetPassword,
