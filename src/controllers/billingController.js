@@ -6,6 +6,9 @@ const ErrorHandler = require("../utils/ErrorHandler");
 const { deleteCachePattern } = require("../config/redis");
 const CustomerAnalytics = require("../models/CustomerAnalytics");
 
+const { syncBillToAuditLog } = require("./gstAuditController");
+const BillingConfig = require("../models/billinggdetails");
+
 exports.getAllBills = asyncHandler(async (req, res, next) => {
   const { username } = req.params;
   const {
@@ -961,6 +964,11 @@ exports.mergeBills = asyncHandler(async (req, res, next) => {
   });
 });
 
+
+
+
+
+// Update the finalizeBill function to include GST audit logging
 exports.finalizeBill = asyncHandler(async (req, res, next) => {
   const { username, billId } = req.params;
   const { paymentMethod, paidAmount } = req.body;
@@ -998,42 +1006,36 @@ exports.finalizeBill = asyncHandler(async (req, res, next) => {
     { $set: { status: "completed" } }
   );
 
- // 🆕 RECORD CUSTOMER ANALYTICS (SAFE + RELIABLE)
-try {
-  console.log("📊 Recording customer analytics...", {
-    billNumber: bill.billNumber,
-    customerName: bill.customerName,
-    phoneNumber: bill.phoneNumber,
-    grandTotal: bill.grandTotal,
-  });
-
-  // Hard guard – skip analytics only if critical data missing
-  if (!bill.customerName || !bill.phoneNumber) {
-    console.warn("⚠️ Analytics skipped: missing customer details");
-  } else {
-    const customerAnalytics = await CustomerAnalytics.findOrCreate(
-      username,
-      bill.customerName,
-      bill.phoneNumber
-    );
-
-    await customerAnalytics.recordVisit(
-      bill.billNumber,
-      Number(bill.grandTotal) || 0,
-      bill.tableNumber
-    );
-
-    console.log("✅ Customer analytics recorded");
+  // 🆕 SYNC TO GST AUDIT LOG
+  try {
+    const billingConfig = await BillingConfig.findOne({ username });
+    await syncBillToAuditLog(bill, billingConfig);
+    console.log("✅ GST audit log synced");
+  } catch (auditError) {
+    console.error("❌ GST audit sync failed:", auditError);
+    // Don't fail the bill finalization if audit sync fails
   }
-} catch (analyticsError) {
-  console.error("❌ Customer analytics failed", {
-    message: analyticsError.message,
-    code: analyticsError.code,
-    keyValue: analyticsError.keyValue,
-    stack: analyticsError.stack,
-  });
-}
 
+  // RECORD CUSTOMER ANALYTICS
+  try {
+    if (bill.customerName && bill.phoneNumber) {
+      const customerAnalytics = await CustomerAnalytics.findOrCreate(
+        username,
+        bill.customerName,
+        bill.phoneNumber
+      );
+
+      await customerAnalytics.recordVisit(
+        bill.billNumber,
+        Number(bill.grandTotal) || 0,
+        bill.tableNumber
+      );
+
+      console.log("✅ Customer analytics recorded");
+    }
+  } catch (analyticsError) {
+    console.error("❌ Customer analytics failed:", analyticsError);
+  }
 
   await deleteCachePattern(`orders:${username}:*`);
 

@@ -258,6 +258,9 @@ app.use("/api/v1", billingRoutes);
 app.use("/api/v1/billing", billingConfigRoutes); // 🔥 GST 
 // Configuration & Tax Compliance
 
+// 🆕 GST AUDIT LOG
+app.use("/api/v1/gst-audit", gstAuditRoutes);
+
 
 
 // OTHER
