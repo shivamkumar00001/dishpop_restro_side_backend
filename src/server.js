@@ -34,6 +34,8 @@ const menuRoutes = require("./routes/menuRoutes.js");
 const dishRoutes = require("./routes/dishRoutes.js");
 const orderRoutes = require("./routes/orderRoutes.js");
 const billingRoutes = require("./routes/billingRoutes");
+// const billinggRoutes = require("./routes/billinggRoutes.js"); // GST setup (double g!)
+
 const billingConfigRoutes = require("./routes/Billingconfig.routes.js"); // 🔥 NEW - GST Compliance
 const restaurantRoutes = require("./routes/restaurant.routes.js");
 const feedbackRoutes = require("./routes/feedback.routes.js");
@@ -42,6 +44,8 @@ const contactRoutes = require("./routes/contact.routes");
 const publicOrderRoutes = require("./routes/publicOrder.routes");
 // Around line 30 (with other route imports)
 const customerAnalyticsRoutes = require("./routes/customerAnalyticsRoutes.js");
+const billinggRoutes = require("./routes/billinggRoutes"); // GST setup (double g!)
+
 const arRoutes = require("./routes/ar.routes.js");
 
 // gst audits 
@@ -258,7 +262,13 @@ app.use("/api/v1/tags", tagRoutes);
 
 // BILLING & GST COMPLIANCE
 app.use("/api/v1", billingRoutes); 
+// app.use("/api/billing", billingRoutes);
+app.use("/api/billing", billinggRoutes); // 🔥 GST setup at /api/billing/setup (YOUR FRONTEND CALLS THIS)
+
+
 app.use("/api/v1/billing", billingConfigRoutes); // 🔥 GST 
+// const billinggRoutes = require("./routes/billinggRoutes"); // GST setup (double g!)
+
 // Configuration & Tax Compliance
 
 // 🆕 GST AUDIT LOG
