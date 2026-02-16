@@ -213,20 +213,27 @@ router.get("/check-username", async (req, res) => {
 
 /* ================================
    CURRENT LOGGED-IN USER
-================================= */
-router.get("/me", isAuthenticated, (req, res) => {
-  const user = req.user;
+// ================================= */
+// router.get("/me", isAuthenticated, (req, res) => {
+//   const user = req.user;
 
+//   return res.json({
+//     success: true,
+//     user: {
+//       username: user.username,
+//       restaurantName: user.restaurantName,
+//       name: user.ownerName,
+//       email: user.email,
+//       phone: user.phone,
+//       profilePhoto: user.profilePhoto,
+//     },
+//   });
+// });
+
+router.get("/me", isAuthenticated, (req, res) => {
   return res.json({
     success: true,
-    user: {
-      username: user.username,
-      restaurantName: user.restaurantName,
-      name: user.ownerName,
-      email: user.email,
-      phone: user.phone,
-      profilePhoto: user.profilePhoto,
-    },
+    user: req.user,
   });
 });
 
