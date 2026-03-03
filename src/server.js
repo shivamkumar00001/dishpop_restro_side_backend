@@ -98,7 +98,7 @@ const allowedOrigins = [
   // Main site
   "https://dishpop.in",
   "https://www.dishpop.in",
-
+  "https://swadisht-kitchen-client-main.vercel.app"
   // User frontend (🔥 REQUIRED)
   "https://user.dishpop.in",
 
